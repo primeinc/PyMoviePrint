@@ -4,6 +4,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 from tkinter import ttk, filedialog, messagebox, colorchooser, simpledialog
 import os
+from source_paths import resolve_source_paths
 import sys
 import shutil
 import tempfile
@@ -1753,7 +1754,7 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
             return
         self._sync_output_destination()
         try:
-            inputs = [p.strip() for p in self.input_paths_var.get().split(';') if p.strip()]
+            inputs = self._current_source_paths()
             if not inputs or not os.path.isfile(inputs[0]):
                 text = 'Select a video to preview its output path.'
             else:
@@ -1942,7 +1943,7 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
     def save_project_action(self):
         state = self.state_manager.get_state()
-        state.source_paths = [p.strip() for p in self.input_paths_var.get().split(';') if p.strip()]
+        state.source_paths = self._current_source_paths()
         state.settings.input_paths = list(state.source_paths)
         path = self.current_project_path
         if not path:
@@ -2166,7 +2167,7 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
         item = self._selected_meta() or {}
         if item.get('video_path'):
             return item['video_path'] if os.path.isfile(item['video_path']) else ''
-        candidates = [p.strip() for p in self.input_paths_var.get().split(';') if p.strip()]
+        candidates = self._current_source_paths()
         return next((path for path in candidates if os.path.isfile(path)), "")
 
     def rename_sheet_action(self):
@@ -2641,7 +2642,7 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
             messagebox.showinfo("Mode Info", "Switch to 'Single Source' tab to preview tweaks.")
             return
 
-        input_paths = [p.strip() for p in self.input_paths_var.get().split(';') if p.strip()]
+        input_paths = self._current_source_paths()
         if not input_paths:
             messagebox.showerror("Preview Error", "Choose a video file before generating a preview.")
             return
@@ -3148,8 +3149,7 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 return
             final_input_list = self.batch_file_list
         else:
-            input_paths_str = self.input_paths_var.get()
-            final_input_list = [p.strip() for p in input_paths_str.split(';') if p.strip()]
+            final_input_list = self._current_source_paths()
             if not final_input_list:
                 messagebox.showerror("Input Error", "Please select video file(s).")
                 return
@@ -3352,6 +3352,10 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.queue.put(("progress", (current, total, filename)))
 
     # --- HELPERS ---
+    def _current_source_paths(self):
+        """Resolve exact selected file identities before legacy field parsing."""
+        return resolve_source_paths(self.input_paths_var.get(), self._internal_input_paths)
+
     def _set_single_source_paths(self, paths):
         """Update the text-bound source entry without clearing its StringVar."""
         self._internal_input_paths = [str(path) for path in paths if path]
@@ -3504,9 +3508,13 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self._loading_persistent_settings = True
             with open(SETTINGS_FILE, 'r') as f:
                 settings = json.load(f)
-                self.input_paths_var.set(settings.get("input_paths", ""))
-                if self.input_paths_var.get():
-                     self._internal_input_paths = [p.strip() for p in self.input_paths_var.get().split(';') if p.strip()]
+                stored_paths = settings.get('input_paths_list')
+                if isinstance(stored_paths, list) and all(isinstance(p, str) for p in stored_paths):
+                    self._internal_input_paths = list(stored_paths)
+                    self.input_paths_var.set('; '.join(self._internal_input_paths))
+                else:
+                    self.input_paths_var.set(settings.get('input_paths', ''))
+                    self._internal_input_paths = resolve_source_paths(self.input_paths_var.get())
                 for var_name, key in self.settings_map.items():
                     if key in settings and hasattr(self, var_name):
                         value = settings[key]
@@ -3549,6 +3557,7 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
         settings = {}
         for var_name, key in self.settings_map.items():
             if hasattr(self, var_name): settings[key] = getattr(self, var_name).get()
+        settings['input_paths_list'] = self._current_source_paths()
         try:
             with open(SETTINGS_FILE, 'w') as f: json.dump(settings, f, indent=4)
         except (OSError, TypeError) as error:
