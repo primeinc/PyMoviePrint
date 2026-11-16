@@ -2738,6 +2738,8 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
     def _thumbnail_preview_thread(self, video_path, temp_dir, config):
         logger = logging.getLogger(f"preview_{threading.get_ident()}")
+        logger.info('Preview worker started: source=%s mode=%s rows=%s cols=%s',
+                    video_path, config['extraction_mode'], config['rows'], config['cols'])
         queue_handler = QueueHandler(self.queue)
         logger.addHandler(queue_handler)
         meta = []
@@ -2930,6 +2932,9 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self._update_live_math()
         source = os.path.basename(metadata[0].get('video_path', '')) if metadata else ''
         self.status_lbl.configure(text=f'Preview ready: {source} · {len(metadata)} frames.')
+        logging.getLogger(__name__).info('Preview state: frames=%d grid=%r original_image=%r source=%s',
+                                        len(metadata), data.get('grid_path'),
+                                        self.preview_zoomable_canvas.original_image is not None, source)
         if metadata and data.get('grid_path') and self.preview_zoomable_canvas.original_image is not None:
             logging.getLogger(__name__).info(
                 'Video contact sheet preview complete: %s frames=%d image=ready', source, len(metadata)
@@ -2937,6 +2942,7 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
     def _handle_preview_failed(self, data):
         reason = data.get("reason") or "An unknown error occurred while generating the preview."
         summary = f"Preview failed: {reason}"
+        logging.getLogger(__name__).error("Contact-sheet preview failure: %s", reason)
         self.progress_bar.stop()
         self.status_lbl.configure(text=summary)
         messagebox.showerror("Preview Error", summary)

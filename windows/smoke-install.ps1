@@ -89,7 +89,19 @@ function Assert-ExplorerLaunch {
                 }
             } catch [IO.IOException] { }
         } while ([DateTime]::UtcNow -lt $deadline)
-        if (-not $found) { throw 'GUI did not emit real video import and rendered-preview receipts' }
+        if (-not $found) {
+            Write-Host "Preview gate failure diagnostics: imported=$imported previewed=$previewed process=$($process.Id)"
+            if (Test-Path -LiteralPath $log) {
+                Get-Content -LiteralPath $log -Tail 120 | ForEach-Object { Write-Host "GUI_LOG $_" }
+                Copy-Item -LiteralPath $log -Destination (Join-Path $PSScriptRoot 'gui-preview.log') -Force
+            } else { Write-Host 'No ~/.pymovieprint/logs/pymovieprint.log' }
+            $startup = Join-Path $env:USERPROFILE '.pymovieprint\logs\shell_entry.log'
+            if (Test-Path -LiteralPath $startup) {
+                Get-Content -LiteralPath $startup -Tail 80 | ForEach-Object { Write-Host "SHELL_LOG $_" }
+                Copy-Item -LiteralPath $startup -Destination (Join-Path $PSScriptRoot 'shell-entry.log') -Force
+            }
+            throw 'GUI did not emit real video import and rendered-preview receipts'
+        }
         Write-Host "Windows ShellExecute verb launched frozen GUI, imported and rendered contact-sheet preview for: $video"
     } finally {
         $process.Refresh()
