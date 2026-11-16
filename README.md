@@ -54,6 +54,12 @@ Compared to simple “every N seconds” contact-sheet scripts, it adds:
 
 ---
 
+## Windows Explorer right-click integration (fork)
+
+This fork includes a per-user Windows Explorer **Create video contact sheet** command that opens the selected video in the existing GUI. Install from a full fork checkout using **windows/Install.cmd**. On Windows 11 the command appears under **Show more options**. See [Windows installation and uninstallation](windows/README.md).
+
+---
+
 ## Installation
 
 ### 1) Requirements
