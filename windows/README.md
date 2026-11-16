@@ -34,3 +34,5 @@ Direct package versions are pinned in `windows/requirements-build.txt`; transiti
 - Inno Setup: https://jrsoftware.org/inno-setup/documentation/topic_setupsection.htm , https://jrsoftware.org/inno-setup/documentation/topic_registrysection.htm
 - Shell selection model: https://learn.microsoft.com/en-us/windows/win32/shell/how-to-employ-the-verb-selection-model
 - PyInstaller build modes: https://pyinstaller.org/en/stable/spec-files.html
+
+The monthly FFmpeg build is retained for two years under upstream release-retention policy; ordinary daily auto-builds are only retained for 14 days. This pin is deliberately not a floating latest URL.

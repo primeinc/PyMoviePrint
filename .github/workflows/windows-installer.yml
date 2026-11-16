@@ -63,9 +63,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $name = 'ffmpeg-n9.0.2-57-gd838f9f9ae-win64-lgpl-shared-9.0.zip'
-          $url = 'https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-11-15-12-40/' + $name
-          $expected = '6305750bb1b4e3f80d17a6644fec1cf57eef12106c4f9192ddb05e14a6b522b0'
+          $name = 'ffmpeg-n9.0.2-39-g7adfbe40dc-win64-lgpl-shared-9.0.zip'
+          $url = 'https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-10-31-12-59/' + $name
+          $expected = 'e907b01fa4783913151237e37df2a10fa97d99a1598a021bf59d4ae62ffed4c0'
           $work = Join-Path $env:RUNNER_TEMP 'pymovieprint-ffmpeg'
           New-Item -ItemType Directory -Path $work -Force | Out-Null
           $archive = Join-Path $work $name
@@ -92,11 +92,11 @@ jobs:
           }
           $licenseNote = @(
             'FFmpeg LGPL shared executable and libraries (unmodified third-party distribution)'
-            'Build archive: ffmpeg-n9.0.2-57-gd838f9f9ae-win64-lgpl-shared-9.0.zip'
-            'Build archive SHA256: 6305750bb1b4e3f80d17a6644fec1cf57eef12106c4f9192ddb05e14a6b522b0'
-            'Build release: https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/tag/autobuild-2026-11-15-12-40'
-            'Build recipes: https://github.com/FFmpeg-Builds/FFmpeg-Builds/tree/c9fe5114060e507409f7ee07edfd82efaf25d767'
-            'FFmpeg source: https://github.com/FFmpeg/FFmpeg/tree/d838f9f9aeb0e09b4d068e2af20a46a12640696f'
+            'Build archive: ffmpeg-n9.0.2-39-g7adfbe40dc-win64-lgpl-shared-9.0.zip'
+            'Build archive SHA256: e907b01fa4783913151237e37df2a10fa97d99a1598a021bf59d4ae62ffed4c0'
+            'Build release: https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/tag/autobuild-2026-10-31-12-59'
+            'Build recipes: https://github.com/FFmpeg-Builds/FFmpeg-Builds/tree/5031c6f1082414e53688d39e521849905071070d'
+            'FFmpeg source: https://github.com/FFmpeg/FFmpeg/tree/7adfbe40dcde598f93a6963d2f7b22cd75202ccc'
             'License: https://ffmpeg.org/legal.html'
             'Third-party component notices: included license files and build recipes.'
           )
@@ -111,8 +111,8 @@ jobs:
           $manifest = @{
             archive=$name
             sha256=$actual
-            release='autobuild-2026-11-15-12-40'
-            ffmpeg_source='d838f9f9aeb0e09b4d068e2af20a46a12640696f'
+            release='autobuild-2026-10-31-12-59'
+            ffmpeg_source='7adfbe40dcde598f93a6963d2f7b22cd75202ccc'
           }
           $manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $destination 'PROVENANCE.json') -Encoding UTF8
       - name: Install Inno Setup compiler

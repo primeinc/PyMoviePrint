@@ -41,7 +41,7 @@ function Assert-Bundled-FFmpeg {
         if (-not (Test-Path -LiteralPath $Path)) { throw "Bundled media runtime missing: $Path" }
     }
     $Manifest = Get-Content -LiteralPath (Join-Path $Bin 'PROVENANCE.json') -Raw | ConvertFrom-Json
-    if ($Manifest.sha256 -cne '6305750bb1b4e3f80d17a6644fec1cf57eef12106c4f9192ddb05e14a6b522b0') {
+    if ($Manifest.sha256 -cne 'e907b01fa4783913151237e37df2a10fa97d99a1598a021bf59d4ae62ffed4c0') {
         throw 'Unexpected bundled FFmpeg archive digest'
     }
     $Output = & (Join-Path $Bin 'ffmpeg.exe') -version

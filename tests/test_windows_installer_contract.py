@@ -87,5 +87,5 @@ def test_workflow_has_complete_ordered_gates():
         assert workflow.count(marker) == 1, step
         positions.append(workflow.index(marker))
     assert positions == sorted(positions)
-    assert '6305750bb1b4e3f80d17a6644fec1cf57eef12106c4f9192ddb05e14a6b522b0' in workflow
+    assert 'e907b01fa4783913151237e37df2a10fa97d99a1598a021bf59d4ae62ffed4c0' in workflow
     assert 'Copy-Item -Path (Join-Path $bin' in workflow
