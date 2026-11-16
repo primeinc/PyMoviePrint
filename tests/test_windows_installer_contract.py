@@ -1,6 +1,7 @@
 """Fail-fast static gates; the Windows workflow also compiles and installs."""
 from pathlib import Path
 import ast
+import json
 import re
 import subprocess
 import sys
@@ -87,5 +88,12 @@ def test_workflow_has_complete_ordered_gates():
         assert workflow.count(marker) == 1, step
         positions.append(workflow.index(marker))
     assert positions == sorted(positions)
-    assert 'e907b01fa4783913151237e37df2a10fa97d99a1598a021bf59d4ae62ffed4c0' in workflow
-    assert 'Copy-Item -Path (Join-Path $bin' in workflow
+    assert "      - main" in workflow
+    assert 'run: ./windows/Prepare-FFmpeg.ps1' in workflow
+    pin = json.loads((ROOT / 'windows' / 'ffmpeg-runtime.lock.json').read_text(encoding='utf-8'))
+    assert len(pin['sha256']) == 64
+    assert pin['asset'].endswith('win64-lgpl-shared-9.0.zip')
+    script = (ROOT / 'windows' / 'Prepare-FFmpeg.ps1').read_text(encoding='utf-8')
+    assert 'Get-FileHash -LiteralPath $Archive -Algorithm SHA256' in script
+    assert 'Copy-Item -Path (Join-Path $Bin' in script
+    assert 'PROVENANCE.json' in script

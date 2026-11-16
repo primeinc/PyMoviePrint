@@ -41,8 +41,9 @@ function Assert-Bundled-FFmpeg {
         if (-not (Test-Path -LiteralPath $Path)) { throw "Bundled media runtime missing: $Path" }
     }
     $Manifest = Get-Content -LiteralPath (Join-Path $Bin 'PROVENANCE.json') -Raw | ConvertFrom-Json
-    if ($Manifest.sha256 -cne 'e907b01fa4783913151237e37df2a10fa97d99a1598a021bf59d4ae62ffed4c0') {
-        throw 'Unexpected bundled FFmpeg archive digest'
+    $Pin = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'ffmpeg-runtime.lock.json') -Raw | ConvertFrom-Json
+    if ($Manifest.sha256 -cne $Pin.sha256) {
+        throw 'Bundled FFmpeg does not match the committed runtime lock'
     }
     $Output = & (Join-Path $Bin 'ffmpeg.exe') -version
     if ($LASTEXITCODE -ne 0) { throw 'Bundled ffmpeg.exe cannot start' }

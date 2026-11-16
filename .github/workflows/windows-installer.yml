@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - main
       - feat/windows-explorer-contact-sheet
   pull_request:
     paths:
@@ -61,60 +62,7 @@ jobs:
           Get-Content dist/PyMoviePrint/build-info.json
       - name: Bundle pinned FFmpeg LGPL shared tools (hash verified)
         shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $name = 'ffmpeg-n9.0.2-39-g7adfbe40dc-win64-lgpl-shared-9.0.zip'
-          $url = 'https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-10-31-12-59/' + $name
-          $expected = 'e907b01fa4783913151237e37df2a10fa97d99a1598a021bf59d4ae62ffed4c0'
-          $work = Join-Path $env:RUNNER_TEMP 'pymovieprint-ffmpeg'
-          New-Item -ItemType Directory -Path $work -Force | Out-Null
-          $archive = Join-Path $work $name
-          Invoke-WebRequest -Uri $url -OutFile $archive -MaximumRedirection 10
-          $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actual -cne $expected) { throw "Pinned FFmpeg SHA256 mismatch: $actual (expected $expected)" }
-          $expanded = Join-Path $work 'expanded'
-          Expand-Archive -LiteralPath $archive -DestinationPath $expanded -Force
-          $ffmpeg = Get-ChildItem -LiteralPath $expanded -Filter ffmpeg.exe -File -Recurse |
-                    Where-Object { $_.Directory.Name -eq 'bin' } | Select-Object -First 1
-          if (-not $ffmpeg) { throw 'FFmpeg archive has no bin/ffmpeg.exe' }
-          $bin = $ffmpeg.DirectoryName
-          if (-not (Test-Path -LiteralPath (Join-Path $bin 'ffprobe.exe'))) { throw 'Missing ffprobe.exe' }
-          $destination = Join-Path $PWD 'dist/PyMoviePrint/ffmpeg'
-          New-Item -ItemType Directory -Path $destination -Force | Out-Null
-          Copy-Item -Path (Join-Path $bin '*') -Destination $destination -Recurse -Force
-          $root = Split-Path -Parent $bin
-          $licenseDir = Join-Path $destination 'licenses'
-          New-Item -ItemType Directory -Path $licenseDir -Force | Out-Null
-          foreach ($file in @(Get-ChildItem -LiteralPath $root -File -ErrorAction SilentlyContinue)) {
-            if ($file.Name -match '^(README|LICENSE|COPYING|CREDITS|NOTICE)') {
-              Copy-Item -LiteralPath $file.FullName -Destination $licenseDir -Force
-            }
-          }
-          $licenseNote = @(
-            'FFmpeg LGPL shared executable and libraries (unmodified third-party distribution)'
-            'Build archive: ffmpeg-n9.0.2-39-g7adfbe40dc-win64-lgpl-shared-9.0.zip'
-            'Build archive SHA256: e907b01fa4783913151237e37df2a10fa97d99a1598a021bf59d4ae62ffed4c0'
-            'Build release: https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/tag/autobuild-2026-10-31-12-59'
-            'Build recipes: https://github.com/FFmpeg-Builds/FFmpeg-Builds/tree/5031c6f1082414e53688d39e521849905071070d'
-            'FFmpeg source: https://github.com/FFmpeg/FFmpeg/tree/7adfbe40dcde598f93a6963d2f7b22cd75202ccc'
-            'License: https://ffmpeg.org/legal.html'
-            'Third-party component notices: included license files and build recipes.'
-          )
-          $licenseNote | Set-Content -LiteralPath (Join-Path $licenseDir 'PROVENANCE.txt') -Encoding UTF8
-          $version = & (Join-Path $destination 'ffmpeg.exe') -version
-          if ($LASTEXITCODE -ne 0) { throw "Bundled FFmpeg failed to execute: $LASTEXITCODE" }
-          if (($version -join ' ') -match '--enable-(gpl|nonfree)') { throw 'Archive claims LGPL but executable enables GPL/nonfree' }
-          & (Join-Path $destination 'ffprobe.exe') -version | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw 'Bundled ffprobe failed to execute' }
-          Write-Host "Pinned FFmpeg LGPL archive verified: $actual"
-          Write-Host "Bundled binaries: " ((Get-ChildItem -LiteralPath $destination -File).Name -join ', ')
-          $manifest = @{
-            archive=$name
-            sha256=$actual
-            release='autobuild-2026-10-31-12-59'
-            ffmpeg_source='7adfbe40dcde598f93a6963d2f7b22cd75202ccc'
-          }
-          $manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $destination 'PROVENANCE.json') -Encoding UTF8
+        run: ./windows/Prepare-FFmpeg.ps1
       - name: Install Inno Setup compiler
         shell: pwsh
         run: |
