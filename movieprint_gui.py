@@ -2930,6 +2930,10 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self._update_live_math()
         source = os.path.basename(metadata[0].get('video_path', '')) if metadata else ''
         self.status_lbl.configure(text=f'Preview ready: {source} · {len(metadata)} frames.')
+        if metadata and data.get('grid_path') and self.preview_zoomable_canvas.original_image is not None:
+            logging.getLogger(__name__).info(
+                'Video contact sheet preview complete: %s frames=%d image=ready', source, len(metadata)
+            )
     def _handle_preview_failed(self, data):
         reason = data.get("reason") or "An unknown error occurred while generating the preview."
         summary = f"Preview failed: {reason}"

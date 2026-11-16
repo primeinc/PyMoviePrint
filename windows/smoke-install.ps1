@@ -63,6 +63,8 @@ function Assert-ExplorerLaunch {
     if (-not $process) { throw 'ShellExecute did not return a GUI process for the registered Explorer verb' }
     try {
         $found = $false
+    $imported = $false
+    $previewed = $false
         $deadline = [DateTime]::UtcNow.AddSeconds(55)
         do {
             Start-Sleep -Milliseconds 600
@@ -79,13 +81,15 @@ function Assert-ExplorerLaunch {
                             $newText = $reader.ReadToEnd()
                             $reader.Dispose()
                         } finally { if ($stream) { $stream.Dispose() } }
-                        if ($newText.Contains('Explorer source import confirmed: 1 video(s)')) { $found = $true; break }
+                        if ($newText.Contains('Explorer source import confirmed: 1 video(s)')) { $imported = $true }
+                        if ($newText -match 'Video contact sheet preview complete: .* frames=[1-9][0-9]* image=ready') { $previewed = $true }
+                        if ($imported -and $previewed) { $found = $true; break }
                     }
                 }
             } catch [IO.IOException] { }
         } while ([DateTime]::UtcNow -lt $deadline)
-        if (-not $found) { throw 'GUI did not emit the expected real selected-video import receipt' }
-        Write-Host "Windows ShellExecute verb launched frozen GUI and loaded selected video: $video"
+        if (-not $found) { throw 'GUI did not emit real video import and rendered-preview receipts' }
+        Write-Host "Windows ShellExecute verb launched frozen GUI, imported and rendered contact-sheet preview for: $video"
     } finally {
         $process.Refresh()
         if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
