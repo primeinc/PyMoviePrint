@@ -10,6 +10,7 @@ class FakeApp:
     def __init__(self):
         self.after = []
         self.loaded = None
+        self._internal_input_paths = []
         self.ran = False
 
     def after_idle(self, callback):
@@ -17,6 +18,7 @@ class FakeApp:
 
     def _add_preview_paths(self, paths):
         self.loaded = paths
+        self._internal_input_paths = paths
 
     def mainloop(self):
         self.ran = True
@@ -59,6 +61,16 @@ class ExplorerLauncherTests(unittest.TestCase):
             video.touch()
             with self.assertRaisesRegex(ValueError, 'Unsupported'):
                 shell_entry.selected_videos([str(video)])
+
+    def test_selected_video_emits_runtime_import_receipt(self):
+        with tempfile.TemporaryDirectory() as root:
+            video = Path(root) / 'scene; with space.mp4'
+            video.touch()
+            app = FakeApp()
+            with patch('shell_entry.os.chdir'):
+                with self.assertLogs('shell_entry', level='INFO') as captured:
+                    self.assertEqual(shell_entry.main([str(video)], lambda: app), 0)
+            self.assertIn('Explorer source import confirmed: 1 video(s)', captured.output[0])
 
     def test_semicolon_filename_accepted(self):
         with tempfile.TemporaryDirectory() as root:

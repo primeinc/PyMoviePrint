@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ctypes
+import logging
 import os
 import shutil
 import sys
@@ -91,7 +92,13 @@ def main(argv=None, app_factory=None):
             app_factory = movieprint_gui.MoviePrintApp
         app = app_factory()
         if paths:
-            app.after_idle(lambda: app._add_preview_paths(paths))
+            def import_explorer_selection():
+                app._add_preview_paths(paths)
+                if getattr(app, '_internal_input_paths', None) == paths:
+                    logging.getLogger(__name__).info(
+                        'Explorer source import confirmed: %d video(s)', len(paths)
+                    )
+            app.after_idle(import_explorer_selection)
         app.mainloop()
         return 0
     except Exception as error:

@@ -241,9 +241,11 @@ def setup_file_logging():
     except Exception as e:
         print(f"Failed to create user profile log: {e}")
 
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
-    root_logger.addHandler(console_handler)
+    # Windowed PyInstaller/pythonw applications have no standard streams.
+    if sys.stdout is not None:
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(logging.INFO)
+        root_logger.addHandler(console_handler)
 
     for module_name, error_detail, error_traceback in DependencyManager.LOAD_FAILURES:
         root_logger.error(
