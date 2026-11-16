@@ -18,9 +18,9 @@ def _escape_annotation(value: str) -> str:
 
 def summarize(junit: Path, label: str, environment: dict[str, str]) -> tuple[list[str], str]:
     lines = [f"### {label}: failed", "",
-             f"Commit: \`{environment.get('GITHUB_SHA', 'unknown')}\`",
-             f"Runner: \`{environment.get('RUNNER_OS', 'unknown')}\`",
-             f"Job: \`{environment.get('GITHUB_JOB', 'unknown')}\`"]
+             f"Commit: `{environment.get('GITHUB_SHA', 'unknown')}`",
+             f"Runner: `{environment.get('RUNNER_OS', 'unknown')}`",
+             f"Job: `{environment.get('GITHUB_JOB', 'unknown')}`"]
     repo = environment.get("GITHUB_REPOSITORY", "")
     run = environment.get("GITHUB_RUN_ID", "")
     if repo and run:
@@ -55,7 +55,7 @@ def summarize(junit: Path, label: str, environment: dict[str, str]) -> tuple[lis
                   f"Failed/error cases: {len(failures)}"])
     if failures:
         lines.extend(["", "Failures:"])
-        lines.extend(f"- \`{item}\`" for item in failures)
+        lines.extend(f"- `{item}`" for item in failures)
         lines.extend(["", "Full pytest exception traces, captured stdout/stderr,",
                       "and logs are in the original failed step and diagnostic report."])
     else:

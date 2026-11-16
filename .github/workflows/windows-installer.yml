@@ -113,7 +113,7 @@ jobs:
           )
           foreach ($folder in $logs) {
             if (Test-Path -LiteralPath $folder) {
-              Get-ChildItem -LiteralPath $folder -File -Filter '*.log' -ErrorAction SilentlyContinue |
+              Get-ChildItem -LiteralPath $folder -File -Filter '*.log' |
                 ForEach-Object {
                   Write-Host "Log file: $($_.FullName)"
                   Get-Content -LiteralPath $_.FullName
@@ -173,22 +173,9 @@ jobs:
           name: PyMoviePrint-Setup.exe
           path: release
 
-      - name: Create GitHub Release containing only the installer EXE
+      - name: Publish or resume a verified, one-EXE release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          installer=release/PyMoviePrint-Setup.exe
-          test -s "$installer"
-          gh release create "$RELEASE_TAG" "$installer" \
-            --verify-tag \
-            --generate-notes \
-            --title "PyMoviePrint $RELEASE_TAG"
-          asset_names="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '[.assets[].name] | join(",")')"
-          if [[ "$asset_names" != "PyMoviePrint-Setup.exe" ]]; then
-            echo "Release assets differ from the one intended installer: $asset_names" >&2
-            exit 1
-          fi
-          echo "Published direct EXE, SHA256: $(sha256sum "$installer" | cut -d ' ' -f 1)"
+        run: bash scripts/ci/publish_release.sh

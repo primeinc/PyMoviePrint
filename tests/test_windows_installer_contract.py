@@ -114,7 +114,14 @@ def test_direct_exe_artifact_and_tagged_release_require_success():
     assert "  contents: read" in workflow
     assert "      contents: write" in workflow
     assert "git merge-base --is-ancestor" in workflow
-    assert 'gh release create "$RELEASE_TAG" "$installer"' in workflow
+    assert 'bash scripts/ci/publish_release.sh' in workflow
+    release_script = (ROOT / 'scripts' / 'ci' / 'publish_release.sh').read_text('utf-8')
+    assert 'gh release create "$RELEASE_TAG" --draft --verify-tag' in release_script
+    assert 'gh release upload "$RELEASE_TAG" "$installer"' in release_script
+    assert 'gh release edit "$RELEASE_TAG" --draft=false' in release_script
+    assert '--clobber' in release_script
+    assert 'sha256sum "$installer"' in release_script
+    assert 'published release asset differs from tested executable' in release_script
     assert "--verify-tag" in workflow
     assert 'asset_names' in workflow
     assert "if-no-files-found: error" in workflow
