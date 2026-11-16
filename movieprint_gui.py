@@ -1574,7 +1574,7 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
             var = getattr(self, var_name)
             val = var.get()
             if setting_key == 'input_paths' and isinstance(val, str):
-                val = [path.strip() for path in val.split(';') if path.strip()]
+                val = self._current_source_paths()
             self.state_manager.update_settings({setting_key: val}, commit=False)
         except Exception: pass
 

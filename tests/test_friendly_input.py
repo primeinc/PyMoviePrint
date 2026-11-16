@@ -60,3 +60,15 @@ def test_picker_cancel_does_nothing(monkeypatch):
     app = NS(is_busy=False, _add_preview_paths=Mock())
     gui.MoviePrintApp.browse_input_paths(app)
     app._add_preview_paths.assert_not_called()
+
+def test_setting_change_preserves_semicolon_filename_in_state():
+    exact_path = 'C:/videos/episode;part 2.mp4'
+    var = Mock()
+    var.get.return_value = exact_path
+    paths = Mock(return_value=[exact_path])
+    manager = Mock()
+    fake_app = NS(input_paths_var=var, _current_source_paths=paths,
+                  state_manager=manager)
+    gui.MoviePrintApp._on_setting_change(fake_app, 'input_paths_var', 'input_paths')
+    paths.assert_called_once_with()
+    manager.update_settings.assert_called_once_with({'input_paths': [exact_path]}, commit=False)
