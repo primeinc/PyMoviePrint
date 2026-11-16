@@ -5,13 +5,14 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "publish_release.sh"
-pytestmark = pytest.mark.skipif(not shutil.which("bash") or not shutil.which("jq"),
-                                reason="Release script requires bash and jq")
+pytestmark = pytest.mark.skipif(sys.platform != "linux" or not shutil.which("bash") or not shutil.which("jq"),
+                                reason="GitHub Releases run on Ubuntu; Windows bash.exe is an unavailable WSL launcher")
 
 
 @pytest.fixture
