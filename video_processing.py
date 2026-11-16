@@ -369,8 +369,13 @@ class VideoExtractor:
         results = []
         Path(output_folder).mkdir(parents=True, exist_ok=True)
         
-        fps, _, _ = self.properties
+        fps, _, frame_count = self.properties
         if fps <= 0: fps = 24.0
+        # OpenCV duration includes the final frame's display interval. Seeking
+        # beyond the final frame PTS returns no packet on short/low-FPS clips.
+        # When the grid has more slots than source frames, repeat the last
+        # decodable frame rather than failing extraction at end-of-stream.
+        last_frame_timestamp = max(0.0, (frame_count - 1) / fps) if frame_count > 0 else None
         total_frames = len(timestamps)
         display_aspect_ratio = self.display_aspect_ratio
 
@@ -398,6 +403,8 @@ class VideoExtractor:
         def extract_one(i, ts):
             if cancel_event is not None and cancel_event.is_set():
                 return None
+            if last_frame_timestamp is not None:
+                ts = max(0.0, min(float(ts), last_frame_timestamp))
             if not fast_preview:
                 self.logger.info(f"  ... Extracting frame {i+1}/{total_frames} at {ts:.2f}s ...")
 
