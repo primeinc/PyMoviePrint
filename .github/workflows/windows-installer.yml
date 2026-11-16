@@ -35,6 +35,13 @@ jobs:
           python -m pip install --only-binary=:all: -r windows/requirements-build.txt
           python -m pip freeze | Out-File -FilePath windows/resolved-build-packages.txt -Encoding utf8
           python -m pip check
+      - name: Install FFmpeg required by upstream integration tests
+        shell: pwsh
+        run: |
+          choco install ffmpeg -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "Chocolatey FFmpeg install exited $LASTEXITCODE" }
+          ffmpeg -version
+          ffprobe -version
       - name: Run complete upstream and fork test suite
         run: python -m pytest -q
       - name: Build Windows GUI executable
