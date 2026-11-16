@@ -65,7 +65,7 @@ jobs:
           choco install innosetup --no-progress -y
           $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
           if (-not (Test-Path $compiler)) { throw 'ISCC.exe missing after Inno Setup installation' }
-          & $compiler /? | Select-Object -First 10
+          Get-Item -LiteralPath $compiler | Select-Object FullName, VersionInfo
       - name: Compile managed Windows installer
         shell: pwsh
         run: |
