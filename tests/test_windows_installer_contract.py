@@ -100,3 +100,23 @@ def test_workflow_has_complete_ordered_gates():
     assert 'Get-FileHash -LiteralPath $Archive -Algorithm SHA256' in script
     assert 'Copy-Item -Path (Join-Path $Bin' in script
     assert 'PROVENANCE.json' in script
+
+def test_direct_exe_artifact_and_tagged_release_require_success():
+    workflow = (ROOT / '.github' / 'workflows' / 'windows-installer.yml').read_text(encoding='utf-8')
+    assert "    tags:\n      - 'v*'" in workflow
+    assert "archive: false" in workflow
+    assert "path: dist/PyMoviePrint-Setup.exe" in workflow
+    assert "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9" in workflow
+    assert "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333" in workflow
+    assert "name: PyMoviePrint-Setup.exe" in workflow
+    assert "    needs: installer" in workflow
+    assert "    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')" in workflow
+    assert "  contents: read" in workflow
+    assert "      contents: write" in workflow
+    assert "git merge-base --is-ancestor" in workflow
+    assert 'gh release create "$RELEASE_TAG" "$installer"' in workflow
+    assert "--verify-tag" in workflow
+    assert 'asset_names' in workflow
+    assert "if-no-files-found: error" in workflow
+    assert "if: always()" not in workflow
+    assert "PyMoviePrint-Windows-installer-${{ github.sha }}" not in workflow

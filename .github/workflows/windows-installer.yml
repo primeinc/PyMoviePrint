@@ -6,6 +6,8 @@ on:
     branches:
       - main
       - feat/windows-explorer-contact-sheet
+    tags:
+      - 'v*'
   pull_request:
     paths:
       - 'windows/**'
@@ -82,14 +84,60 @@ jobs:
       - name: Install, verify registry, upgrade, uninstall
         shell: pwsh
         run: ./windows/smoke-install.ps1
-      - name: Publish installer and frozen dependency receipt for inspection
-        if: always()
-        uses: actions/upload-artifact@v4
+      # GitHub upload-artifact v7 supports raw, single-file downloads.
+      # This is the executable itself, not an automatically zipped archive.
+      - name: Publish tested installer EXE without ZIP
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: PyMoviePrint-Windows-installer-${{ github.sha }}
-          path: |
-            dist/PyMoviePrint-Setup.exe
-            windows/resolved-build-packages.txt
-            dist/PyMoviePrint/build-info.json
-            windows/*.log
-          if-no-files-found: warn
+          path: dist/PyMoviePrint-Setup.exe
+          archive: false
+          if-no-files-found: error
+
+  release:
+    name: Publish direct EXE to GitHub Releases
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: installer
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Allow release tags only from merged main history
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" refs/remotes/origin/main; then
+            echo "Release tag must identify a commit already merged into main." >&2
+            exit 1
+          fi
+
+      - name: Retrieve CI-tested EXE directly
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: PyMoviePrint-Setup.exe
+          path: release
+
+      - name: Create GitHub Release containing only the installer EXE
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          installer=release/PyMoviePrint-Setup.exe
+          test -s "$installer"
+          gh release create "$RELEASE_TAG" "$installer" \
+            --verify-tag \
+            --generate-notes \
+            --title "PyMoviePrint $RELEASE_TAG"
+          asset_names="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '[.assets[].name] | join(",")')"
+          if [[ "$asset_names" != "PyMoviePrint-Setup.exe" ]]; then
+            echo "Release assets differ from the one intended installer: $asset_names" >&2
+            exit 1
+          fi
+          echo "Published direct EXE, SHA256: $(sha256sum "$installer" | cut -d ' ' -f 1)"
