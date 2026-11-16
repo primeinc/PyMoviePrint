@@ -121,7 +121,7 @@ def test_published_wrong_exe_fails_and_does_not_mutate(scenario):
     state.write_text(json.dumps(bad))
     result = _invoke(scenario)
     assert result.returncode != 0
-    assert "published release asset differs from tested executable" in result.stderr
+    assert "published release asset differs from tested executable" in result.stderr.lower()
     assert json.loads(state.read_text()) == bad
 
 

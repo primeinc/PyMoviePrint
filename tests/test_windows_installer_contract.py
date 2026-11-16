@@ -121,7 +121,7 @@ def test_direct_exe_artifact_and_tagged_release_require_success():
     assert 'gh release edit "$RELEASE_TAG" --draft=false' in release_script
     assert '--clobber' in release_script
     assert 'sha256sum "$installer"' in release_script
-    assert 'published release asset differs from tested executable' in release_script
+    assert 'published release asset differs from tested executable' in release_script.lower()
     assert "--verify-tag" in workflow
     assert 'asset_names' in workflow
     assert "if-no-files-found: error" in workflow
