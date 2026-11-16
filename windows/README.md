@@ -4,7 +4,7 @@ This directory belongs to the real [primeinc/PyMoviePrint fork](https://github.c
 
 ## Install the built app
 
-**Only after the Windows installer workflow has passed:** download `PyMoviePrint-Setup.exe` from that workflow's artifact (or a verified release), and run it. The installer installs an isolated frozen PyMoviePrint GUI and creates a per-user Explorer **Create video contact sheet** verb for MP4, MKV, MOV, AVI, WMV and FLV files. No Python installation, administrator elevation or change to default video-player associations is required. **FFmpeg and ffprobe must still be available in PATH**; install them with `winget install --exact --id Gyan.FFmpeg` if missing.
+**Only after the Windows installer workflow has passed:** download `PyMoviePrint-Setup.exe` from that workflow's artifact (or a verified release), and run it. The installer installs an isolated frozen PyMoviePrint GUI and creates a per-user Explorer **Create video contact sheet** verb for MP4, MKV, MOV, AVI, WMV and FLV files. No Python installation, administrator elevation or change to default video-player associations is required. **FFmpeg and ffprobe are bundled** from the pinned FFmpeg LGPL shared distribution; the Windows build verifies SHA-256 before packaging. See `ffmpeg/licenses/PROVENANCE.txt` in the installed application for binary build, source commit, and licensing references. On a failed bundled-binary check, installation MUST fail, not silently fall back to random PATH binaries.
 
 Windows 11: right-click a video, choose **Show more options**, then **Create video contact sheet**. On Windows 10 the entry appears in the classic context menu. PyMoviePrint starts with that video and generates an editable preview; adjust **Rows** and **Columns** before exporting. Multiple selections use the Windows `Document` model: each selected file launches its own editor instance (up to the Shell's normal 15-file limit). This is a real Explorer verb, not a Send To shortcut. No native first-level Windows 11 `IExplorerCommand` extension is provided.
 
@@ -26,7 +26,7 @@ python -m PyInstaller --noconfirm --clean --distpath dist --workpath build/windo
 
 The workflow `.github/workflows/windows-installer.yml` runs these checks and stores the installer plus dependency manifest. It must actually run on Windows before this PR is mergeable; Linux-only source tests are insufficient. The Windows smoke script performs install, upgrade, registry-readback, altered-verb refusal, and uninstall tests. It does not establish usability or preview/export correctness until a real GUI acceptance run passes.
 
-Direct package versions are pinned in `windows/requirements-build.txt`; transitive packages are recorded in `build-info.json` by CI but are **not yet a fully hash-locked build**. Do not claim bit-for-bit reproducibility from the source alone.
+Direct package versions are pinned in `windows/requirements-build.txt`; transitive packages are recorded in `build-info.json` by CI but are **not yet a fully hash-locked build**. Bundled FFmpeg archive is pinned to `autobuild-2026-11-15-12-40` with SHA-256 `6305750bb1b4e3f80d17a6644fec1cf57eef12106c4f9192ddb05e14a6b522b0`, produced from FFmpeg source `d838f9f9aeb0e09b4d068e2af20a46a12640696f` and FFmpeg-Builds scripts `c9fe5114060e507409f7ee07edfd82efaf25d767`. Review license obligations for *all third-party components* before public release. Do not claim bit-for-bit reproducibility from the source alone.
 
 ## Reference receipts
 

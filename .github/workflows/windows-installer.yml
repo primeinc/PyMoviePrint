@@ -59,6 +59,87 @@ jobs:
           }
           $metadata | ConvertTo-Json -Depth 5 | Set-Content -Path dist/PyMoviePrint/build-info.json -Encoding UTF8
           Get-Content dist/PyMoviePrint/build-info.json
+      - name: Bundle pinned FFmpeg LGPL shared tools (hash verified)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = 'ffmpeg-n9.0.2-57-gd838f9f9ae-win64-lgpl-shared-9.0.zip'
+          $url = 'https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-11-15-12-40/' + $name
+          $expected = '6305750bb1b4e3f80d17a6644fec1cf57eef12106c4f9192ddb05e14a6b522b0'
+          $work = Join-Path $env:RUNNER_TEMP 'pymovieprint-ffmpeg'
+          New-Item -ItemType Directory -Path $work -Force | Out-Null
+          $archive = Join-Path $work $name
+          Invoke-WebRequest -Uri $url -OutFile $archive -MaximumRedirection 10
+          $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -cne $expected) { throw "Pinned FFmpeg SHA256 mismatch: $actual (expected $expected)" }
+          $expanded = Join-Path $work 'expanded'
+          Expand-Archive -LiteralPath $archive -DestinationPath $expanded -Force
+          $ffmpeg = Get-ChildItem -LiteralPath $expanded -Filter ffmpeg.exe -File -Recurse |
+                    Where-Object { $_.DirectoryName -match '[\\/]bin
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (-not (Test-Path $compiler)) { throw 'ISCC.exe missing after Inno Setup installation' }
+          Get-Item -LiteralPath $compiler | Select-Object FullName, VersionInfo
+      - name: Compile managed Windows installer
+        shell: pwsh
+        run: |
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          & $compiler windows/PyMoviePrint.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC exited $LASTEXITCODE" }
+          if (-not (Test-Path dist/PyMoviePrint-Setup.exe)) { throw 'Installer output missing' }
+      - name: Install, verify registry, upgrade, uninstall
+        shell: pwsh
+        run: ./windows/smoke-install.ps1
+      - name: Publish installer and frozen dependency receipt for inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PyMoviePrint-Windows-installer-${{ github.sha }}
+          path: |
+            dist/PyMoviePrint-Setup.exe
+            windows/resolved-build-packages.txt
+            dist/PyMoviePrint/build-info.json
+            windows/*.log
+          if-no-files-found: warn
+ } | Select-Object -First 1
+          if (-not $ffmpeg) { throw 'FFmpeg archive has no bin/ffmpeg.exe' }
+          $bin = $ffmpeg.DirectoryName
+          if (-not (Test-Path -LiteralPath (Join-Path $bin 'ffprobe.exe'))) { throw 'Missing ffprobe.exe' }
+          $destination = Join-Path $PWD 'dist/PyMoviePrint/ffmpeg'
+          New-Item -ItemType Directory -Path $destination -Force | Out-Null
+          Copy-Item -LiteralPath (Join-Path $bin '*') -Destination $destination -Recurse -Force
+          # Retain the distributor's included license documents as supplied.
+          $root = Split-Path -Parent $bin
+          $licenseDir = Join-Path $destination 'licenses'
+          New-Item -ItemType Directory -Path $licenseDir -Force | Out-Null
+          foreach ($file in @(Get-ChildItem -LiteralPath $root -File -ErrorAction SilentlyContinue)) {
+            if ($file.Name -match '^(README|LICENSE|COPYING|CREDITS|NOTICE)' ) {
+              Copy-Item -LiteralPath $file.FullName -Destination $licenseDir -Force
+            }
+          }
+          $licenseNote = @(
+            'FFmpeg LGPL shared executable and libraries (unmodified third-party distribution)'
+            'Build archive: ffmpeg-n9.0.2-57-gd838f9f9ae-win64-lgpl-shared-9.0.zip'
+            'Build archive SHA256: 6305750bb1b4e3f80d17a6644fec1cf57eef12106c4f9192ddb05e14a6b522b0'
+            'Build release: https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/tag/autobuild-2026-11-15-12-40'
+            'Build recipes at commit: https://github.com/FFmpeg-Builds/FFmpeg-Builds/tree/c9fe5114060e507409f7ee07edfd82efaf25d767'
+            'Corresponding FFmpeg source: https://github.com/FFmpeg/FFmpeg/tree/d838f9f9aeb0e09b4d068e2af20a46a12640696f'
+            'Upstream license information: https://ffmpeg.org/legal.html'
+            'This software uses FFmpeg under the license terms applying to the above build.'
+            'Third-party component notices in included license files and upstream build recipes.'
+          )
+          $licenseNote | Set-Content -LiteralPath (Join-Path $licenseDir 'PROVENANCE.txt') -Encoding UTF8
+          $version = & (Join-Path $destination 'ffmpeg.exe') -version
+          if ($LASTEXITCODE -ne 0) { throw "Bundled FFmpeg failed to execute: $LASTEXITCODE" }
+          if (($version -join ' ') -match '--enable-(gpl|nonfree)') { throw 'Archive claims LGPL but executable enables GPL/nonfree' }
+          & (Join-Path $destination 'ffprobe.exe') -version
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled ffprobe failed to execute' }
+          Write-Host "Pinned FFmpeg LGPL archive verified: $actual"
+          Write-Host "Bundled binaries: " ((Get-ChildItem -LiteralPath $destination -File).Name -join ', ')
+          $manifest = @{archive = $name; sha256 = $actual; release='autobuild-2026-11-15-12-40'; ffmpeg_source='d838f9f9aeb0e09b4d068e2af20a46a12640696f'}
+          $manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $destination 'PROVENANCE.json') -Encoding UTF8
       - name: Install Inno Setup compiler
         shell: pwsh
         run: |
