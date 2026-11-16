@@ -43,10 +43,13 @@ jobs:
       - name: Install FFmpeg required by upstream integration tests
         shell: pwsh
         run: |
-          choco install ffmpeg -y --no-progress
-          if ($LASTEXITCODE -ne 0) { throw "Chocolatey FFmpeg install exited $LASTEXITCODE" }
-          ffmpeg -version
-          ffprobe -version
+          $bin = Join-Path $env:RUNNER_TEMP 'pymovieprint-ffmpeg-ci'
+          ./windows/Prepare-FFmpeg.ps1 -Destination $bin
+          & (Join-Path $bin 'ffmpeg.exe') -version
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned FFmpeg failed to start' }
+          & (Join-Path $bin 'ffprobe.exe') -version
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned FFprobe failed to start' }
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value $bin
       - name: Run complete upstream and fork test suite
         run: python -m pytest -q
       - name: Build Windows GUI executable
