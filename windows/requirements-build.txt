@@ -8,3 +8,4 @@ tkinterdnd2==0.4.3
 customtkinter==5.2.2
 PyInstaller==6.22.3
 pytest==9.0.2
+filelock==3.32.6

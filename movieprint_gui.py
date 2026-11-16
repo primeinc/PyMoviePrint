@@ -4,6 +4,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 from tkinter import ttk, filedialog, messagebox, colorchooser, simpledialog
 import os
+from filelock import FileLock, Timeout
 from source_paths import resolve_source_paths
 import sys
 import shutil
@@ -233,24 +234,30 @@ def _save_settings_atomically(path, settings):
     exits can replace one another's complete JSON, never interleave/truncate.
     """
     destination = os.path.abspath(os.fspath(path))
-    temporary_path = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode='w', encoding='utf-8', dir=os.path.dirname(destination),
-            prefix='.pymovieprint-settings-', suffix='.tmp', delete=False,
-        ) as stream:
-            temporary_path = stream.name
-            json.dump(settings, stream, indent=4)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary_path, destination)
+    # Cross-process lock from tox-dev/filelock@3.32.6. Windows uses native
+    # LockFileEx; keeping a stable sidecar avoids lock-file identity races.
+    # The durable JSON is still written to a unique temp and atomically
+    # replaced, so readers never observe a partial write.
+    lock = FileLock(destination + '.lock', timeout=30, preserve_lock_file=True)
+    with lock:
         temporary_path = None
-    finally:
-        if temporary_path is not None:
-            try:
-                os.unlink(temporary_path)
-            except FileNotFoundError:
-                pass
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode='w', encoding='utf-8', dir=os.path.dirname(destination),
+                prefix='.pymovieprint-settings-', suffix='.tmp', delete=False,
+            ) as stream:
+                temporary_path = stream.name
+                json.dump(settings, stream, indent=4)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary_path, destination)
+            temporary_path = None
+        finally:
+            if temporary_path is not None:
+                try:
+                    os.unlink(temporary_path)
+                except FileNotFoundError:
+                    pass
 
 
 # --- LOGGING SETUP ---
@@ -3599,7 +3606,7 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
         settings['input_paths_list'] = self._current_source_paths()
         try:
             _save_settings_atomically(SETTINGS_FILE, settings)
-        except (OSError, TypeError) as error:
+        except (OSError, TypeError, Timeout) as error:
             logging.getLogger(__name__).warning("Could not save GUI settings: %s", error)
         if self.preview_temp_dir and os.path.exists(self.preview_temp_dir): self.temp_dirs_to_cleanup.append(self.preview_temp_dir)
         self._cleanup_garbage_dirs()

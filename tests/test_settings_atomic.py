@@ -59,3 +59,74 @@ def test_simultaneous_editor_writes_leave_complete_valid_json(tmp_path):
     assert final["sequence"] == final["editor"] * 17
     assert final["payload"] == str(final["editor"]) * 1000
     assert not list(tmp_path.glob(".pymovieprint-settings-*.tmp"))
+
+
+def _save_from_subprocess(args):
+    path, index = args
+    from movieprint_gui import _save_settings_atomically
+    _save_settings_atomically(path, {
+        "editor": index,
+        "sequence": index * 17,
+        "payload": str(index) * 1000,
+    })
+
+
+def test_separate_editor_processes_never_corrupt_settings(tmp_path):
+    """Windows shell verbs start separate processes, not just threads."""
+    from concurrent.futures import ProcessPoolExecutor
+    from multiprocessing import get_context
+
+    target = tmp_path / "shared-settings.json"
+    with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as pool:
+        list(pool.map(_save_from_subprocess, [(str(target), i) for i in range(12)]))
+
+    final = json.loads(target.read_text(encoding="utf-8"))
+    assert final["sequence"] == final["editor"] * 17
+    assert final["payload"] == str(final["editor"]) * 1000
+    assert not list(tmp_path.glob(".pymovieprint-settings-*.tmp"))
+
+
+def test_kernel_file_lock_serializes_simultaneous_replacements(tmp_path, monkeypatch):
+    """Negative control: the same instrumented workload overlaps without a lock."""
+    import contextlib
+    import threading
+    import time
+
+    target = tmp_path / "shared.json"
+    original_replace = os.replace
+    active = 0
+    peak = 0
+    gate = threading.Lock()
+
+    def monitored_replace(src, dst):
+        nonlocal active, peak
+        with gate:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.01)
+        try:
+            return original_replace(src, dst)
+        finally:
+            with gate:
+                active -= 1
+
+    monkeypatch.setattr(movieprint_gui.os, "replace", monitored_replace)
+
+    def run_round():
+        nonlocal peak
+        peak = 0
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(lambda i: movieprint_gui._save_settings_atomically(
+                target, {"editor": i}), range(12)))
+        return peak
+
+    assert run_round() == 1
+
+    # Mutate the guard away in-memory: the same verifier must detect overlap.
+    monkeypatch.setattr(movieprint_gui, "FileLock", lambda *a, **kw: contextlib.nullcontext())
+    # On Windows an overlapping os.replace might fail, which is itself the bug.
+    try:
+        unguarded_peak = run_round()
+    except OSError:
+        unguarded_peak = peak
+    assert unguarded_peak > 1

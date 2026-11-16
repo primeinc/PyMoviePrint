@@ -20,7 +20,7 @@ hiddenimports += [
     'tkinter.messagebox', 'tkinter.colorchooser', 'tkinter.scrolledtext',
     'tkinter.ttk', 'video_processing', 'image_grid', 'state_manager',
     'project_io', 'movieprint_maker', 'workspace_tools', 'face_analysis',
-    'version', 'source_paths',
+    'version', 'source_paths', 'filelock',
 ]
 
 a = Analysis(

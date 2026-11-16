@@ -39,3 +39,7 @@ Direct package versions are pinned in `windows/requirements-build.txt`; transiti
 - PyInstaller build modes: https://pyinstaller.org/en/stable/spec-files.html
 
 The monthly FFmpeg build is retained for two years under upstream release-retention policy; ordinary daily auto-builds are only retained for 14 days. This pin is deliberately not a floating latest URL.
+
+### Shared settings concurrency
+
+Explorer can launch multiple editors simultaneously. Settings are written to a unique temporary JSON file and replaced under a cross-process native file lock (`filelock==3.32.6`). The lock's stable sidecar is retained to prevent Windows lock-file identity races; the JSON itself remains atomic. This follows upstream [tox-dev/filelock](https://github.com/tox-dev/filelock/tree/4efd93e0482e8095a0b6949fb337206e7f67495d) documentation in `docs/tutorials.rst` and `docs/how-to.rst`, using `FileLock(..., preserve_lock_file=True)`.
