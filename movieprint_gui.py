@@ -226,6 +226,33 @@ class Theme:
 
 Theme.apply_preset("Teal")
 
+def _save_settings_atomically(path, settings):
+    """Replace saved settings only after a complete JSON file is on disk.
+
+    Each GUI process writes a uniquely named sibling file. Concurrent editor
+    exits can replace one another's complete JSON, never interleave/truncate.
+    """
+    destination = os.path.abspath(os.fspath(path))
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode='w', encoding='utf-8', dir=os.path.dirname(destination),
+            prefix='.pymovieprint-settings-', suffix='.tmp', delete=False,
+        ) as stream:
+            temporary_path = stream.name
+            json.dump(settings, stream, indent=4)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, destination)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            try:
+                os.unlink(temporary_path)
+            except FileNotFoundError:
+                pass
+
+
 # --- LOGGING SETUP ---
 def setup_file_logging():
     root_logger = logging.getLogger()
@@ -3571,7 +3598,7 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
             if hasattr(self, var_name): settings[key] = getattr(self, var_name).get()
         settings['input_paths_list'] = self._current_source_paths()
         try:
-            with open(SETTINGS_FILE, 'w') as f: json.dump(settings, f, indent=4)
+            _save_settings_atomically(SETTINGS_FILE, settings)
         except (OSError, TypeError) as error:
             logging.getLogger(__name__).warning("Could not save GUI settings: %s", error)
         if self.preview_temp_dir and os.path.exists(self.preview_temp_dir): self.temp_dirs_to_cleanup.append(self.preview_temp_dir)
