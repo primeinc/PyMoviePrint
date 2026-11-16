@@ -122,8 +122,8 @@ def test_direct_exe_artifact_and_tagged_release_require_success():
     assert '--clobber' in release_script
     assert 'sha256sum "$installer"' in release_script
     assert 'published release asset differs from tested executable' in release_script.lower()
-    assert "--verify-tag" in workflow
-    assert 'asset_names' in workflow
+    assert "--verify-tag" in release_script
+    assert 'assets=' in release_script
     assert "if-no-files-found: error" in workflow
     assert "if: always()" not in workflow
     assert "PyMoviePrint-Windows-installer-${{ github.sha }}" not in workflow
