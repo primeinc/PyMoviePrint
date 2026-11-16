@@ -1,11 +1,11 @@
 name: Windows contact sheet installer
+run-name: Windows installer / ${{ github.event_name }} / ${{ github.head_ref || github.ref_name }}
 
 on:
   workflow_dispatch:
   push:
     branches:
       - main
-      - feat/windows-explorer-contact-sheet
     tags:
       - 'v*'
   pull_request:
@@ -16,6 +16,13 @@ on:
       - 'movieprint_gui.py'
       - 'tests/**'
       - '.github/workflows/windows-installer.yml'
+
+# Different workflows never cancel one another. Automatic runs supersede
+# earlier commits on the same branch. Version releases and manual dispatches
+# remain independent and are never canceled by new commits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ (github.event_name == 'workflow_dispatch' || github.ref_type == 'tag') && github.run_id || (github.head_ref || github.ref_name) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type != 'tag') }}
 
 permissions:
   contents: read
@@ -35,9 +42,13 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
+          if ($LASTEXITCODE -ne 0) { throw "pip bootstrap failed with exit code $LASTEXITCODE" }
           python -m pip install --only-binary=:all: -r windows/requirements-build.txt
+          if ($LASTEXITCODE -ne 0) { throw "pinned dependency installation failed with exit code $LASTEXITCODE" }
           python -m pip freeze | Out-File -FilePath windows/resolved-build-packages.txt -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw "dependency manifest creation failed with exit code $LASTEXITCODE" }
           python -m pip check
+          if ($LASTEXITCODE -ne 0) { throw "installed dependencies conflict with exit code $LASTEXITCODE" }
       - name: Generate branded Windows icon
         run: python windows/build_icon.py
       - name: Install FFmpeg required by upstream integration tests
@@ -51,11 +62,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Pinned FFprobe failed to start' }
           Add-Content -LiteralPath $env:GITHUB_PATH -Value $bin
       - name: Run complete upstream and fork test suite
-        run: python -m pytest -q
+        run: python -m pytest -q --tb=long -ra --show-capture=all --junitxml=ci-reports/pytest.xml
       - name: Build Windows GUI executable
         shell: pwsh
         run: |
           python -m PyInstaller --noconfirm --clean --distpath dist --workpath build/windows windows/PyMoviePrint.spec
+          if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed with exit code $LASTEXITCODE" }
           if (-not (Test-Path dist/PyMoviePrint/PyMoviePrint.exe)) { throw 'Missing frozen executable' }
           $exe = Get-FileHash dist/PyMoviePrint/PyMoviePrint.exe -Algorithm SHA256
           $metadata = [ordered]@{
@@ -74,6 +86,7 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup --no-progress -y
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed with exit code $LASTEXITCODE" }
           $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
           if (-not (Test-Path $compiler)) { throw 'ISCC.exe missing after Inno Setup installation' }
           Get-Item -LiteralPath $compiler | Select-Object FullName, VersionInfo
@@ -87,6 +100,41 @@ jobs:
       - name: Install, verify registry, upgrade, uninstall
         shell: pwsh
         run: ./windows/smoke-install.ps1
+      - name: Annotate installer failure and retain full diagnostics
+        if: failure() && !cancelled()
+        shell: pwsh
+        run: |
+          python scripts/ci/report_failure.py --junit ci-reports/pytest.xml --label "Windows installer"
+          if ($LASTEXITCODE -ne 0) { throw "Failure diagnostic reporter exited $LASTEXITCODE" }
+          Write-Host "::group::Frozen GUI and shell logs, if present"
+          $logs = @(
+            (Join-Path $env:USERPROFILE '.pymovieprint/logs'),
+            (Join-Path $PWD 'windows')
+          )
+          foreach ($folder in $logs) {
+            if (Test-Path -LiteralPath $folder) {
+              Get-ChildItem -LiteralPath $folder -File -Filter '*.log' -ErrorAction SilentlyContinue |
+                ForEach-Object {
+                  Write-Host "Log file: $($_.FullName)"
+                  Get-Content -LiteralPath $_.FullName
+                }
+            }
+          }
+          Write-Host "::endgroup::"
+
+      - name: Upload installer failure evidence (not part of public release)
+        if: failure() && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics-installer-${{ github.run_id }}
+          path: |
+            ci-reports/
+            windows/*.log
+            dist/PyMoviePrint/build-info.json
+            windows/resolved-build-packages.txt
+          if-no-files-found: error
+          retention-days: 14
+
       # GitHub upload-artifact v7 supports raw, single-file downloads.
       # This is the executable itself, not an automatically zipped archive.
       - name: Publish tested installer EXE without ZIP
