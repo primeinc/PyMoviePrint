@@ -67,3 +67,25 @@ def test_powershell_windows_smoke_file_is_parseable_on_windows():
         "if ($e.Count -gt 0) { $e | Out-String | Write-Error; exit 1 }"
     )
     subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', command], check=True)
+
+
+def test_workflow_has_complete_ordered_gates():
+    workflow = (ROOT / '.github' / 'workflows' / 'windows-installer.yml').read_text(encoding='utf-8')
+    steps = [
+        'Install pinned direct dependencies',
+        'Install FFmpeg required by upstream integration tests',
+        'Run complete upstream and fork test suite',
+        'Build Windows GUI executable',
+        'Bundle pinned FFmpeg LGPL shared tools (hash verified)',
+        'Install Inno Setup compiler',
+        'Compile managed Windows installer',
+        'Install, verify registry, upgrade, uninstall',
+    ]
+    positions = []
+    for step in steps:
+        marker = '      - name: ' + step
+        assert workflow.count(marker) == 1, step
+        positions.append(workflow.index(marker))
+    assert positions == sorted(positions)
+    assert '6305750bb1b4e3f80d17a6644fec1cf57eef12106c4f9192ddb05e14a6b522b0' in workflow
+    assert 'Copy-Item -Path (Join-Path $bin' in workflow
