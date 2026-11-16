@@ -34,6 +34,24 @@ function Assert-Registered {
     }
 }
 
+function Assert-Bundled-FFmpeg {
+    $Bin = Join-Path $Dest 'ffmpeg'
+    foreach ($Name in @('ffmpeg.exe','ffprobe.exe','PROVENANCE.json')) {
+        $Path = Join-Path $Bin $Name
+        if (-not (Test-Path -LiteralPath $Path)) { throw "Bundled media runtime missing: $Path" }
+    }
+    $Manifest = Get-Content -LiteralPath (Join-Path $Bin 'PROVENANCE.json') -Raw | ConvertFrom-Json
+    if ($Manifest.sha256 -cne '6305750bb1b4e3f80d17a6644fec1cf57eef12106c4f9192ddb05e14a6b522b0') {
+        throw 'Unexpected bundled FFmpeg archive digest'
+    }
+    $Output = & (Join-Path $Bin 'ffmpeg.exe') -version
+    if ($LASTEXITCODE -ne 0) { throw 'Bundled ffmpeg.exe cannot start' }
+    if (($Output -join ' ') -match '--enable-(gpl|nonfree)') { throw 'Non-LGPL FFmpeg build bundled' }
+    & (Join-Path $Bin 'ffprobe.exe') -version | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Bundled ffprobe.exe cannot start' }
+    Write-Host 'Pinned FFmpeg runtime verified from installed application without PATH dependency.'
+}
+
 function Assert-ExplorerLaunch {
     $video = Join-Path $env:TEMP 'PyMoviePrint scene; selection.mp4'
     & ffmpeg -hide_banner -loglevel error -y -f lavfi -i 'testsrc2=size=160x90:rate=4:duration=2' -c:v mpeg4 -q:v 6 -an $video 2>&1 | Out-Null
@@ -99,9 +117,11 @@ function Uninstall-Managed {
 if (-not (Test-Path $Setup)) { throw 'Missing setup installer' }
 Run-Setup @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$PSScriptRoot/install.log")
 Assert-Registered
+Assert-Bundled-FFmpeg
 Assert-ExplorerLaunch
 Run-Setup @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$PSScriptRoot/upgrade.log")
 Assert-Registered
+Assert-Bundled-FFmpeg
 
 # Fault injection: a foreign edit to an owned verb must block an update BEFORE any file change.
 $path = 'Software\Classes\SystemFileAssociations\.mkv\shell\PyMoviePrint.ContactSheet'

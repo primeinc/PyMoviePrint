@@ -109,7 +109,7 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $bin 'ffprobe.exe'))) { throw 'Missing ffprobe.exe' }
           $destination = Join-Path $PWD 'dist/PyMoviePrint/ffmpeg'
           New-Item -ItemType Directory -Path $destination -Force | Out-Null
-          Copy-Item -LiteralPath (Join-Path $bin '*') -Destination $destination -Recurse -Force
+          Copy-Item -Path (Join-Path $bin '*') -Destination $destination -Recurse -Force
           # Retain the distributor's included license documents as supplied.
           $root = Split-Path -Parent $bin
           $licenseDir = Join-Path $destination 'licenses'

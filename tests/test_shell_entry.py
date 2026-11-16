@@ -103,3 +103,25 @@ class ExplorerLauncherTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class BundledRuntimeTests(unittest.TestCase):
+    def test_frozen_install_refuses_host_path_fallback(self):
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(shell_entry.sys, 'frozen', True, create=True):
+                with patch('shell_entry.find_application_directory', return_value=Path(root)):
+                    with patch('shell_entry.shutil.which', return_value='C:/untrusted/ffmpeg.exe'):
+                        with self.assertRaisesRegex(RuntimeError, 'installed FFmpeg runtime'):
+                            shell_entry.configure_ffmpeg()
+
+    def test_frozen_install_prepends_bundled_tools(self):
+        with tempfile.TemporaryDirectory() as root:
+            tools = Path(root) / 'ffmpeg'
+            tools.mkdir()
+            (tools / 'ffmpeg.exe').touch()
+            (tools / 'ffprobe.exe').touch()
+            with patch.object(shell_entry.sys, 'frozen', True, create=True):
+                with patch('shell_entry.find_application_directory', return_value=Path(root)):
+                    with patch.dict(os.environ, {'PATH': 'C:/other'}, clear=False):
+                        shell_entry.configure_ffmpeg()
+                        self.assertEqual(os.environ['PATH'].split(os.pathsep)[0], str(tools))

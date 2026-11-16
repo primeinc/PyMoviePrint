@@ -66,8 +66,13 @@ def configure_ffmpeg():
     installed_bin = find_application_directory() / 'ffmpeg'
     if (installed_bin / 'ffmpeg.exe').is_file() and (installed_bin / 'ffprobe.exe').is_file():
         os.environ['PATH'] = str(installed_bin) + os.pathsep + os.environ.get('PATH', '')
+        return
+    # A frozen release must use its verified bundled binaries. Never silently
+    # use an unrelated executable from a user's PATH if packaging is damaged.
+    if getattr(sys, 'frozen', False):
+        raise RuntimeError('The installed FFmpeg runtime is incomplete; reinstall PyMoviePrint.')
     if not (shutil.which('ffmpeg') and shutil.which('ffprobe')):
-        raise RuntimeError('FFmpeg and ffprobe are required. Install both using winget install Gyan.FFmpeg before launching.')
+        raise RuntimeError('FFmpeg and ffprobe are required in development; install both before launching.')
 
 
 def main(argv=None, app_factory=None):
