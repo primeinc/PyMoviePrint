@@ -91,16 +91,26 @@ def test_real_export_format_and_layout_matrix(clip, tmp_path, mode, extension):
 
 @pytest.mark.parametrize('transfer,kind', [('smpte2084', 'PQ'), ('arib-std-b67', 'HLG')])
 def test_real_hdr_detection_and_tonemapping(tmp_path, transfer, kind):
-    path = tmp_path / f'{kind}.mp4'
+    # Use the native LGPL FFV1 encoder in the exact FFmpeg runtime we ship.
+    # Set HDR metadata on frames, not only the output context: Matroska must
+    # preserve color transfer for ffprobe and the tone-mapping decoder.
+    path = tmp_path / f'{kind}.mkv'
     subprocess.run([vp.FFMPEG_BIN, '-hide_banner', '-loglevel', 'error', '-y',
         '-f', 'lavfi', '-i', 'testsrc2=size=160x90:rate=25:duration=1',
-        '-c:v', 'libx265', '-pix_fmt', 'yuv420p10le', '-color_primaries', 'bt2020',
-        '-color_trc', transfer, '-colorspace', 'bt2020nc', '-x265-params',
-        f'colorprim=9:transfer={16 if kind == "PQ" else 18}:colormatrix=9', str(path)],
+        '-vf', f'setparams=color_primaries=bt2020:color_trc={transfer}:colorspace=bt2020nc',
+        '-c:v', 'ffv1', '-level', '3', '-pix_fmt', 'yuv420p10le',
+        '-color_primaries', 'bt2020', '-color_trc', transfer,
+        '-colorspace', 'bt2020nc', str(path)],
         check=True, capture_output=True, timeout=30)
     probe = subprocess.run([vp.FFPROBE_BIN, '-v', 'error', '-show_streams', '-of', 'json', str(path)],
                            capture_output=True, text=True, check=True, timeout=10)
-    assert transfer in probe.stdout, probe.stdout
+    import json
+    stream = json.loads(probe.stdout)['streams'][0]
+    assert stream['codec_name'] == 'ffv1', stream
+    assert stream['pix_fmt'] == 'yuv420p10le', stream
+    assert stream['color_primaries'] == 'bt2020', stream
+    assert stream['color_transfer'] == transfer, stream
+    assert stream['color_space'] == 'bt2020nc', stream
     with vp.VideoExtractor(str(path), logging.getLogger('hdr')) as extractor:
         assert extractor.detect_hdr_type() == kind
     ok, frames = vp.extract_frames_from_timestamps(str(path), [0.25],
