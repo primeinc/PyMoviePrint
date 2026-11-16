@@ -1,37 +1,72 @@
-"""Windows Explorer selected-file launcher for the PyMoviePrint GUI."""
+"""Launch the real PyMoviePrint GUI with files selected in Windows Explorer."""
 from __future__ import annotations
+
+import ctypes
 import os
+import shutil
 import sys
 import traceback
 from pathlib import Path
 
-VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".wmv", ".flv"}
+VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.mov', '.avi', '.wmv', '.flv'}
+MUTEX_NAME = r'Local\PyMoviePrintExplorerRunning'
 
 
 def selected_videos(arguments):
-    found = []
+    result = []
     seen = set()
     for argument in arguments:
         path = Path(argument).expanduser().absolute()
         if not path.is_file():
-            raise ValueError(f"Video file not found: {path}")
+            raise ValueError(f'Video file not found: {path}')
         if path.suffix.lower() not in VIDEO_EXTENSIONS:
-            raise ValueError(f"Unsupported video extension: {path.suffix}")
-        if ";" in str(path):
-            raise ValueError("Semicolons in filenames are not supported by the GUI source parser")
-        key = os.path.normcase(str(path))
-        if key not in seen:
-            seen.add(key)
-            found.append(str(path))
-    return found
+            raise ValueError(f'Unsupported video extension: {path.suffix}')
+        norm = os.path.normcase(str(path))
+        if norm not in seen:
+            seen.add(norm)
+            result.append(str(path))
+    return result
 
 
 def show_error(message):
-    if sys.platform == "win32":
-        import ctypes
-        ctypes.windll.user32.MessageBoxW(None, str(message), "PyMoviePrint", 0x10)
+    if sys.platform == 'win32':
+        ctypes.windll.user32.MessageBoxW(None, str(message), 'PyMoviePrint', 0x10)
     else:
         print(message, file=sys.stderr)
+
+
+def acquire_mutex():
+    if sys.platform != 'win32':
+        return None
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    create = kernel32.CreateMutexW
+    create.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p]
+    create.restype = ctypes.c_void_p
+    handle = create(None, 0, MUTEX_NAME)
+    if not handle:
+        raise OSError(ctypes.get_last_error(), 'Could not register application mutex')
+    return handle
+
+
+def release_mutex(handle):
+    if handle and sys.platform == 'win32':
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        kernel32.CloseHandle(handle)
+
+
+def find_application_directory():
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def configure_ffmpeg():
+    installed_bin = find_application_directory() / 'ffmpeg'
+    if (installed_bin / 'ffmpeg.exe').is_file() and (installed_bin / 'ffprobe.exe').is_file():
+        os.environ['PATH'] = str(installed_bin) + os.pathsep + os.environ.get('PATH', '')
+    if not (shutil.which('ffmpeg') and shutil.which('ffprobe')):
+        raise RuntimeError('FFmpeg and ffprobe are required. Install both using winget install Gyan.FFmpeg before launching.')
 
 
 def main(argv=None, app_factory=None):
@@ -42,19 +77,16 @@ def main(argv=None, app_factory=None):
     except (ValueError, OSError) as error:
         show_error(error)
         return 2
+    mutex = None
     try:
-        home = Path(__file__).resolve().parent
-        os.chdir(home)
-        ffmpeg_marker = home / "ffmpeg-bin.txt"
-        if ffmpeg_marker.is_file():
-            bin_dir = ffmpeg_marker.read_text(encoding="utf-8-sig").strip()
-            if bin_dir and (Path(bin_dir) / "ffmpeg.exe").is_file() and (Path(bin_dir) / "ffprobe.exe").is_file():
-                os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+        mutex = acquire_mutex()
+        os.chdir(find_application_directory())
         if app_factory is None:
+            configure_ffmpeg()
             import movieprint_gui
-            settings = Path.home() / ".pymovieprint"
+            settings = Path.home() / '.pymovieprint'
             settings.mkdir(parents=True, exist_ok=True)
-            movieprint_gui.SETTINGS_FILE = str(settings / "movieprint_gui_settings.json")
+            movieprint_gui.SETTINGS_FILE = str(settings / 'movieprint_gui_settings.json')
             movieprint_gui.setup_file_logging()
             app_factory = movieprint_gui.MoviePrintApp
         app = app_factory()
@@ -63,16 +95,18 @@ def main(argv=None, app_factory=None):
         app.mainloop()
         return 0
     except Exception as error:
-        logs = Path.home() / ".pymovieprint" / "logs"
+        log_dir = Path.home() / '.pymovieprint' / 'logs'
         try:
-            logs.mkdir(parents=True, exist_ok=True)
-            with (logs / "shell_entry.log").open("a", encoding="utf-8") as output:
+            log_dir.mkdir(parents=True, exist_ok=True)
+            with (log_dir / 'shell_entry.log').open('a', encoding='utf-8') as output:
                 traceback.print_exc(file=output)
         except OSError:
             pass
-        show_error(f"Failed to open video contact sheet editor:\n{error}")
+        show_error(f'Could not start contact sheet editor:\n{error}')
         return 1
+    finally:
+        release_mutex(mutex)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     raise SystemExit(main())
