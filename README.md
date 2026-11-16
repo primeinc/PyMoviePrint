@@ -56,7 +56,7 @@ Compared to simple “every N seconds” contact-sheet scripts, it adds:
 
 ## Windows Explorer right-click integration (fork)
 
-This fork includes a per-user Windows Explorer **Create video contact sheet** command that opens the selected video in the existing GUI. Install from a full fork checkout using **windows/Install.cmd**. On Windows 11 the command appears under **Show more options**. See [Windows installation and uninstallation](windows/README.md).
+**Draft PR #1, not yet released.** This fork adds a per-user Windows Explorer **Create video contact sheet** command that opens a selected video in the GUI. The new [Windows installer](windows/README.md) is built with Inno Setup from a PyInstaller bundle; **do not** attempt the deleted `windows/Install.cmd` path. Download and install only a Windows installer artifact after its Windows build and acceptance tests pass. On Windows 11 the classic context-menu command appears under **Show more options**. The first-level Windows 11 menu extension is not implemented.
 
 ---
 
