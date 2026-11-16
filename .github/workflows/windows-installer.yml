@@ -36,6 +36,8 @@ jobs:
           python -m pip install --only-binary=:all: -r windows/requirements-build.txt
           python -m pip freeze | Out-File -FilePath windows/resolved-build-packages.txt -Encoding utf8
           python -m pip check
+      - name: Generate branded Windows icon
+        run: python windows/build_icon.py
       - name: Install FFmpeg required by upstream integration tests
         shell: pwsh
         run: |

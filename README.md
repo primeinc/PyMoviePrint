@@ -56,7 +56,7 @@ Compared to simple “every N seconds” contact-sheet scripts, it adds:
 
 ## Windows Explorer right-click integration (fork)
 
-This fork integrates a per-user Windows Explorer **Create video contact sheet** command. Download the tested `PyMoviePrint-Setup.exe` from the [Windows installer Actions workflow](https://github.com/primeinc/PyMoviePrint/actions/workflows/windows-installer.yml), then run Setup. The installer bundles Python and a pinned, verified FFmpeg LGPL runtime, so no separate Python/FFmpeg installation is needed. The existing GUI opens the selected video and provides adjustable **Rows** and **Columns**, preview, and export. Windows 11 exposes this classic command under **Show more options**; a first-level Windows 11 extension is not implemented. Full steps and source/license details: [Windows installer documentation](windows/README.md).
+This fork integrates a per-user Windows Explorer **Create video contact sheet** command. Download the tested `PyMoviePrint-Setup.exe` from the [Windows installer Actions workflow](https://github.com/primeinc/PyMoviePrint/actions/workflows/windows-installer.yml), then run Setup. The installer bundles Python and a pinned, verified FFmpeg LGPL runtime, so no separate Python/FFmpeg installation is needed. The classic right-click command displays the branded PyMoviePrint icon. The existing GUI opens the selected video and provides adjustable **Rows** and **Columns**, preview, and export. Windows 11 exposes this classic command under **Show more options**; a first-level Windows 11 extension is not implemented. Full steps and source/license details: [Windows installer documentation](windows/README.md).
 
 ---
 

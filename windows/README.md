@@ -6,7 +6,7 @@ This directory belongs to the real [primeinc/PyMoviePrint fork](https://github.c
 
 **Only after the Windows installer workflow has passed:** download `PyMoviePrint-Setup.exe` from that workflow's artifact (or a verified release), and run it. The installer installs an isolated frozen PyMoviePrint GUI and creates a per-user Explorer **Create video contact sheet** verb for MP4, MKV, MOV, AVI, WMV and FLV files. No Python installation, administrator elevation or change to default video-player associations is required. **FFmpeg and ffprobe are bundled.** The build runs `windows/Prepare-FFmpeg.ps1`, which reads `windows/ffmpeg-runtime.lock.json`, verifies the archived LGPL build's SHA-256, stages its DLLs and license files, and records exact binary/source provenance. The frozen launcher refuses to fall back to unrelated executables in PATH.
 
-Windows 11: right-click a video, choose **Show more options**, then **Create video contact sheet**. On Windows 10 the entry appears in the classic context menu. PyMoviePrint starts with that video and generates an editable preview; adjust **Rows** and **Columns** before exporting. Multiple selections use the Windows `Document` model: each selected file launches its own editor instance (up to the Shell's normal 15-file limit). This is a real Explorer verb, not a Send To shortcut. No native first-level Windows 11 `IExplorerCommand` extension is provided.
+The **Create video contact sheet** entry displays the PyMoviePrint filmstrip/play logo, generated from `windows/PyMoviePrint-icon.png` into a real multi-resolution `PyMoviePrint.ico` for Explorer, the app, and Setup. Windows 11: right-click a video, choose **Show more options**, then **Create video contact sheet**. On Windows 10 the entry appears in the classic context menu. PyMoviePrint starts with that video and generates an editable preview; adjust **Rows** and **Columns** before exporting. Multiple selections use the Windows `Document` model: each selected file launches its own editor instance (up to the Shell's normal 15-file limit). This is a real Explorer verb, not a Send To shortcut. No native first-level Windows 11 `IExplorerCommand` extension is provided.
 
 Uninstall from **Windows Installed Apps**. The Inno Setup uninstall log manages files and registration, and the uninstall callback removes only verb keys whose menu, selection mode and exact command remain unchanged. User settings in `~/.pymovieprint` are not removed. If another program has changed a verb, that verb is preserved for manual reconciliation.
 
@@ -19,6 +19,8 @@ On a Windows x64 machine with Python 3.11 and Inno Setup 6, from the repository 
 ```powershell
 python -m pip install -r windows/requirements-build.txt
 python -m pytest -q
+python windows/build_icon.py
+python windows/generate_installer.py
 python -m PyInstaller --noconfirm --clean --distpath dist --workpath build/windows windows/PyMoviePrint.spec
 powershell.exe -NoProfile -File windows/Prepare-FFmpeg.ps1
 & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" windows/PyMoviePrint.iss

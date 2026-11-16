@@ -24,6 +24,9 @@ def test_reuses_real_inno_managed_lifecycle():
                       'CloseApplications=yes', 'RestartApplications=no'):
         assert directive in iss
     assert 'UninstallDisplayIcon={app}\\PyMoviePrint.exe' in iss
+    assert 'SetupIconFile=PyMoviePrint.ico' in iss
+    assert 'function LegacyVerbMatches(const Extension: String): Boolean;' in iss
+    assert 'not LegacyVerbMatches(Extension)' in iss
     assert 'uninsdeletekey' not in iss.lower()
     assert 'RegDeleteKeyIncludingSubkeys' in iss
     assert "if VerbMatches(Extension) then" in iss

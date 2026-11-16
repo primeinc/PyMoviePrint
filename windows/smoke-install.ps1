@@ -19,12 +19,20 @@ function Run-Setup([string[]]$Arguments) {
 function Assert-Registered {
     if (-not (Test-Path -LiteralPath $Exe)) { throw 'Installed PyMoviePrint.exe missing' }
     $expected = '"' + $Exe + '" "%1"'
+    $Icon = Join-Path $Dest 'PyMoviePrint.ico'
+    $BuildIcon = Join-Path $PSScriptRoot 'PyMoviePrint.ico'
+    if (-not (Test-Path -LiteralPath $Icon)) { throw 'Installed PyMoviePrint.ico missing' }
+    if (-not (Test-Path -LiteralPath $BuildIcon)) { throw 'Branded build icon missing' }
+    $installedIconSha = (Get-FileHash -LiteralPath $Icon -Algorithm SHA256).Hash
+    $buildIconSha = (Get-FileHash -LiteralPath $BuildIcon -Algorithm SHA256).Hash
+    if ($installedIconSha -cne $buildIconSha) { throw 'Installed branded ICO differs from build asset' }
     foreach ($ext in $Exts) {
         $path = "Software\Classes\SystemFileAssociations\$ext\shell\PyMoviePrint.ContactSheet"
         $key = $Root.OpenSubKey($path)
         if (-not $key) { throw "Missing Explorer verb $ext" }
         try {
             if ($key.GetValue('MultiSelectModel') -ne 'Document') { throw "Wrong selection mode $ext" }
+            if ([string]$key.GetValue('Icon') -cne $Icon) { throw "Wrong branded Explorer icon for $ext" }
             $command = $key.OpenSubKey('command')
             if (-not $command) { throw "Missing command $ext" }
             try {
@@ -139,6 +147,25 @@ Assert-ExplorerLaunch
 Run-Setup @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$PSScriptRoot/upgrade.log")
 Assert-Registered
 Assert-Bundled-FFmpeg
+
+# Upgrade compatibility: the previously published menu had no Icon value.
+$legacyPath = 'Software\Classes\SystemFileAssociations\.mp4\shell\PyMoviePrint.ContactSheet'
+$legacy = $Root.OpenSubKey($legacyPath, $true)
+if (-not $legacy) { throw 'Missing managed verb for legacy migration test' }
+try { $legacy.DeleteValue('Icon', $false) } finally { $legacy.Close() }
+Run-Setup @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART')
+Assert-Registered
+
+# Ownership: an unrelated Icon edit must refuse upgrades, preserving the application.
+$iconPath = 'Software\Classes\SystemFileAssociations\.mov\shell\PyMoviePrint.ContactSheet'
+$iconKey = $Root.OpenSubKey($iconPath, $true)
+try { $iconKey.SetValue('Icon', 'C:\Foreign\viewer.ico') } finally { $iconKey.Close() }
+$iconBad = Start-Process -FilePath $Setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -Wait -PassThru
+if ($iconBad.ExitCode -eq 0) { throw 'Installer overwrote foreign Explorer Icon value' }
+if (-not (Test-Path -LiteralPath $Exe)) { throw 'Application disappeared after Icon preflight refusal' }
+$iconKey = $Root.OpenSubKey($iconPath, $true)
+try { $iconKey.SetValue('Icon', (Join-Path $Dest 'PyMoviePrint.ico')) } finally { $iconKey.Close() }
+Assert-Registered
 
 # Fault injection: a foreign edit to an owned verb must block an update BEFORE any file change.
 $path = 'Software\Classes\SystemFileAssociations\.mkv\shell\PyMoviePrint.ContactSheet'
