@@ -1,0 +1,124 @@
+name: Publish verified Windows EXE
+run-name: Release ${{ inputs.release_tag }} from Windows run ${{ inputs.tested_run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'New immutable version tag, e.g. v1.1.0.1'
+        required: true
+        type: string
+      source_sha:
+        description: 'Exact tested main commit SHA (40 lowercase hex)'
+        required: true
+        type: string
+      tested_run_id:
+        description: 'Successful Windows installer push-to-main Actions run ID'
+        required: true
+        type: string
+      installer_sha256:
+        description: 'SHA-256 of the successful uncompressed EXE artifact (64 lowercase hex)'
+        required: true
+        type: string
+
+# Unlike tag-push triggers, an explicit dispatch works with GITHUB_TOKEN.
+# This job creates the tag and publishes the verified asset in the SAME run.
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: publish-verified-${{ github.repository }}-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out main release scripts and history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check provenance of already-tested Windows installer
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          TESTED_RUN_ID: ${{ inputs.tested_run_id }}
+          EXPECTED_SHA256: ${{ inputs.installer_sha256 }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$TAG" =~ ^v[0-9]+([.][0-9]+){2,3}$ ]] || { echo 'Invalid version tag'; exit 1; }
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid source SHA'; exit 1; }
+          [[ "$TESTED_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'Invalid run ID'; exit 1; }
+          [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo 'Invalid SHA-256'; exit 1; }
+          if ! git merge-base --is-ancestor "$SOURCE_SHA" "$GITHUB_SHA"; then
+            echo "::error::Candidate SHA is not merged into main"
+            exit 1
+          fi
+          run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$TESTED_RUN_ID")"
+          if ! jq -e --arg sha "$SOURCE_SHA" '
+            .head_sha == $sha and .conclusion == "success" and
+            .event == "push" and .head_branch == "main" and
+            .path == ".github/workflows/windows-installer.yml"
+          ' <<< "$run_json"; then
+            echo "::error::Windows acceptance run does not prove the proposed source SHA"
+            exit 1
+          fi
+          artifact_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$TESTED_RUN_ID/artifacts")"
+          count="$(jq '[.artifacts[] | select(.name == "PyMoviePrint-Setup.exe" and (.expired == false))] | length' <<< "$artifact_json")"
+          [[ "$count" == 1 ]] || { echo "::error::Expected exactly one unexpired installer EXE artifact, found $count"; exit 1; }
+          digest="$(jq -r '.artifacts[] | select(.name == "PyMoviePrint-Setup.exe" and (.expired == false)) | .digest' <<< "$artifact_json")"
+          [[ "$digest" == "sha256:$EXPECTED_SHA256" ]] || {
+            echo "::error::Artifact digest mismatch: $digest != sha256:$EXPECTED_SHA256"
+            exit 1
+          }
+          echo "Verified prior Windows run $TESTED_RUN_ID against source $SOURCE_SHA and $digest"
+
+      - name: Retrieve raw tested EXE from that exact run
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: PyMoviePrint-Setup.exe
+          run-id: ${{ inputs.tested_run_id }}
+          github-token: ${{ github.token }}
+          path: release
+          digest-mismatch: error
+
+      - name: Create immutable tag and publish only the verified EXE
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          EXPECTED_SHA256: ${{ inputs.installer_sha256 }}
+        run: |
+          set -Eeuo pipefail
+          installer=release/PyMoviePrint-Setup.exe
+          test -s "$installer"
+          actual="$(sha256sum "$installer" | awk '{print $1}')"
+          [[ "$actual" == "$EXPECTED_SHA256" ]] || {
+            echo "::error::Downloaded EXE differs from SHA-verified Windows run"
+            exit 1
+          }
+          if existing_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.sha' 2>&1)"; then
+            [[ "$existing_sha" == "$SOURCE_SHA" ]] || {
+              echo "::error::Existing tag points to $existing_sha, not $SOURCE_SHA; refusing to move it"
+              exit 1
+            }
+            echo "Correct immutable tag already exists: $TAG -> $SOURCE_SHA"
+          elif [[ "$existing_sha" == *'HTTP 404'* ]]; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$TAG" -f sha="$SOURCE_SHA"
+            echo "Created $TAG at $SOURCE_SHA"
+          else
+            echo "::error::Cannot read tag; refusing to treat authentication or API failure as absence"
+            printf '%s\n' "$existing_sha"
+            exit 1
+          fi
+          RELEASE_TAG="$TAG" bash scripts/ci/publish_release.sh
+          echo "Published $TAG with PyMoviePrint-Setup.exe, SHA-256 $EXPECTED_SHA256"
