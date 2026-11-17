@@ -24,7 +24,7 @@ trap 'rc=$?; echo "::error title=Release upload/publish failed::Tag $RELEASE_TAG
 read_release() {
   local releases
   releases="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")"
-  jq -cer --arg tag "$RELEASE_TAG" '
+  jq -cr --arg tag "$RELEASE_TAG" '
     [.[][] | select(.tag_name == $tag)] |
     if length > 1 then error("multiple releases carry the same tag") else .[0] // empty end
   ' <<< "$releases"
