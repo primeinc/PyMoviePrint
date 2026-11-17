@@ -18,15 +18,36 @@ fi
 expected_digest="sha256:$(sha256sum "$installer" | awk '{print $1}')"
 trap 'rc=$?; echo "::error title=Release upload/publish failed::Tag $RELEASE_TAG failed at line $LINENO with exit $rc" >&2; exit "$rc"' ERR
 
+# GitHub's GET /releases/tags/{tag} endpoint returns PUBLISHED releases
+# only. Drafts must be discovered by the authenticated list releases API.
+# github/cli's FetchRelease does a separate GraphQL pending-tag lookup.
+read_release() {
+  local releases
+  releases="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")"
+  jq -cer --arg tag "$RELEASE_TAG" '
+    [.[][] | select(.tag_name == $tag)] |
+    if length > 1 then error("multiple releases carry the same tag") else .[0] // empty end
+  ' <<< "$releases"
+}
+
 echo "Preparing direct installer release: tag=$RELEASE_TAG file=$installer digest=$expected_digest"
-if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft'; then
-  echo "Existing release found; verifying state."
+release_json="$(read_release)"
+if [[ -n "$release_json" ]]; then
+  echo "Existing release found (draft or published); verifying state."
 else
   echo "Release absent; creating a recoverable draft."
   gh release create "$RELEASE_TAG" --draft --verify-tag --generate-notes --title "PyMoviePrint $RELEASE_TAG"
+  for attempt in 1 2 3 4 5 6 7 8; do
+    release_json="$(read_release)"
+    [[ -n "$release_json" ]] && break
+    echo "Waiting for new draft release to become list-visible (attempt $attempt/8)"
+    sleep 1
+  done
+  [[ -n "$release_json" ]] || {
+    echo "::error::Draft was created, but the release listing did not return it; refusing an unsafe retry"
+    exit 1
+  }
 fi
-
-release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")"
 draft="$(printf '%s' "$release_json" | jq -r '.draft')"
 assets="$(printf '%s' "$release_json" | jq -r '[.assets[].name] | join(",")')"
 actual_digest="$(printf '%s' "$release_json" | jq -r '.assets[0].digest // ""')"
@@ -58,7 +79,7 @@ else
   gh release upload "$RELEASE_TAG" "$installer"
 fi
 
-release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")"
+release_json="$(read_release)"
 assets="$(printf '%s' "$release_json" | jq -r '[.assets[].name] | join(",")')"
 actual_digest="$(printf '%s' "$release_json" | jq -r '.assets[0].digest // ""')"
 if [[ "$assets" != "PyMoviePrint-Setup.exe" || "$actual_digest" != "$expected_digest" ]]; then
@@ -67,7 +88,7 @@ if [[ "$assets" != "PyMoviePrint-Setup.exe" || "$actual_digest" != "$expected_di
 fi
 
 gh release edit "$RELEASE_TAG" --draft=false
-release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")"
+release_json="$(read_release)"
 draft="$(printf '%s' "$release_json" | jq -r '.draft')"
 assets="$(printf '%s' "$release_json" | jq -r '[.assets[].name] | join(",")')"
 actual_digest="$(printf '%s' "$release_json" | jq -r '.assets[0].digest // ""')"

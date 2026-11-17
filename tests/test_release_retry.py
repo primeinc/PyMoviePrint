@@ -61,10 +61,18 @@ elif args[:2] == ["release", "edit"]:
     state_path.write_text(json.dumps(obj))
     print("release published")
 elif args[0] == "api":
-    if obj is None:
-        print("404", file=sys.stderr)
-        sys.exit(1)
-    print(json.dumps(obj))
+    if any("/releases/tags/" in arg for arg in args):
+        # Upstream REST endpoint intentionally hides draft releases.
+        if obj is None or obj["draft"]:
+            print("404", file=sys.stderr)
+            sys.exit(1)
+        print(json.dumps(obj))
+    elif any("releases?per_page=100" in arg for arg in args):
+        # gh api --paginate --slurp wraps each response page in an array.
+        print(json.dumps([[obj]] if obj is not None else [[]]))
+    else:
+        print("unexpected API:", args, file=sys.stderr)
+        sys.exit(99)
 else:
     print("unexpected gh call:", args, file=sys.stderr)
     sys.exit(99)
@@ -141,3 +149,21 @@ def test_release_command_parses_on_host_shell():
     result = subprocess.run(["bash", "-n", str(SCRIPT)], text=True,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     assert result.returncode == 0, result.stderr
+
+
+def test_draft_lookups_use_list_endpoint_not_published_only_tag_endpoint():
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert "gh api --paginate --slurp" in script
+    assert "select(.tag_name == $tag)" in script
+    assert 'gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG"' not in script
+
+
+def test_existing_draft_resumes_without_duplicate_release(scenario):
+    _, _, state, installer = scenario
+    state.write_text(json.dumps({"draft": True, "assets": []}))
+    result = _invoke(scenario)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Existing release found (draft or published)" in result.stdout
+    assert json.loads(state.read_text()) == {"draft": False, "assets": [
+        {"name": "PyMoviePrint-Setup.exe", "digest": _digest(installer)},
+    ]}
