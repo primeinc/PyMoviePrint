@@ -369,8 +369,13 @@ class VideoExtractor:
         results = []
         Path(output_folder).mkdir(parents=True, exist_ok=True)
         
-        fps, _, _ = self.properties
+        fps, _, frame_count = self.properties
         if fps <= 0: fps = 24.0
+        # OpenCV duration includes the final frame's display interval. Seeking
+        # beyond the final frame PTS returns no packet on short/low-FPS clips.
+        # When the grid has more slots than source frames, repeat the last
+        # decodable frame rather than failing extraction at end-of-stream.
+        last_frame_timestamp = max(0.0, (frame_count - 1) / fps) if frame_count > 0 else None
         total_frames = len(timestamps)
         display_aspect_ratio = self.display_aspect_ratio
 
@@ -398,8 +403,13 @@ class VideoExtractor:
         def extract_one(i, ts):
             if cancel_event is not None and cancel_event.is_set():
                 return None
+            # A scene's requested timestamp is its identity in the shot map.
+            # Clamp only the media seek; never change the metadata lookup key.
+            requested_ts = float(ts)
+            seek_ts = (max(0.0, min(requested_ts, last_frame_timestamp))
+                       if last_frame_timestamp is not None else requested_ts)
             if not fast_preview:
-                self.logger.info(f"  ... Extracting frame {i+1}/{total_frames} at {ts:.2f}s ...")
+                self.logger.info(f"  ... Extracting frame {i+1}/{total_frames} at {seek_ts:.2f}s ...")
 
             # Construct Filter Chain
             filters = []
@@ -416,7 +426,7 @@ class VideoExtractor:
             vf_filter = ",".join(filters)
             q_scale = '5' if fast_preview else '2'
 
-            final_name = f"thumb_{i:03d}_ts{ts:.2f}.{ext}"
+            final_name = f"thumb_{i:03d}_ts{requested_ts:.2f}.{ext}"
             final_path = os.path.join(output_folder, final_name)
             
             cmd = [FFMPEG_BIN]
@@ -424,7 +434,7 @@ class VideoExtractor:
                 cmd.extend(['-hwaccel', 'cuda'])
 
             # Input Seeking: Fast and precise
-            cmd.extend(['-ss', str(ts)])
+            cmd.extend(['-ss', str(seek_ts)])
             cmd.extend(['-i', self.video_path])
 
             cmd.extend([
@@ -440,8 +450,8 @@ class VideoExtractor:
             if success and os.path.exists(final_path):
                 return {
                     'frame_path': final_path,
-                    'frame_number': int(ts * fps),
-                    'timestamp_sec': ts,
+                    'frame_number': int(seek_ts * fps),
+                    'timestamp_sec': requested_ts,
                     'video_filename': self.video_filename,
                     'video_path': os.path.abspath(self.video_path),
                     **({'aspect_ratio': display_aspect_ratio} if display_aspect_ratio else {}),

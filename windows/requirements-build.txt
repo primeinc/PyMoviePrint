@@ -1,0 +1,11 @@
+# Python 3.11, Windows x64 direct build pins. CI records all resolved transitive deps.
+# Follow up with an immutable wheel hash lock before reproducibility can be claimed.
+opencv-python==4.7.0.72
+numpy==1.26.4
+Pillow==10.0.0
+scenedetect==0.6.6
+tkinterdnd2==0.4.3
+customtkinter==5.2.2
+PyInstaller==6.22.3
+pytest==9.0.2
+filelock==3.32.6

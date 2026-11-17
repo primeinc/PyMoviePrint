@@ -1,12 +1,23 @@
 name: CI
+run-name: CI / ${{ github.event_name }} / ${{ github.head_ref || github.ref_name }}
 
 on:
   push:
+    branches:
+      - main
   pull_request:
+  workflow_dispatch:
+
+# Keep only the latest automatic run per workflow, event and branch.
+# Release tags and explicit manual runs have unique groups: do not cancel them.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ (github.event_name == 'workflow_dispatch' || github.ref_type == 'tag') && github.run_id || (github.head_ref || github.ref_name) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type != 'tag') }}
 
 jobs:
   tests:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -31,14 +42,36 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
-      - name: Install FFmpeg on Windows
+      - name: Install pinned LGPL FFmpeg on Windows
         if: runner.os == 'Windows'
-        run: choco install ffmpeg -y --no-progress
+        shell: pwsh
+        run: |
+          $bin = Join-Path $env:RUNNER_TEMP 'pymovieprint-ffmpeg-ci'
+          ./windows/Prepare-FFmpeg.ps1 -Destination $bin
+          & (Join-Path $bin 'ffmpeg.exe') -version
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned FFmpeg failed to start' }
+          & (Join-Path $bin 'ffprobe.exe') -version
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned FFprobe failed to start' }
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value $bin
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest
 
-      - name: Run tests
-        run: python -m pytest -q
+      - name: Run full test suite (complete failures, concise successes)
+        run: python -m pytest -q --tb=long -ra --show-capture=all --junitxml=ci-reports/pytest.xml
+
+      - name: Annotate CI failure and preserve diagnostic context
+        if: failure() && !cancelled()
+        run: python scripts/ci/report_failure.py --junit ci-reports/pytest.xml --label "CI ${{ matrix.os }} Python ${{ matrix.python-version }}"
+
+      - name: Retain failed-run reports (not published with installer)
+        if: failure() && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics-${{ matrix.os }}-py${{ matrix.python-version }}-${{ github.run_id }}
+          path: |
+            ci-reports/
+          if-no-files-found: error
+          retention-days: 14

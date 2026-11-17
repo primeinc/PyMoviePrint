@@ -4,6 +4,8 @@ import logging
 from logging.handlers import RotatingFileHandler
 from tkinter import ttk, filedialog, messagebox, colorchooser, simpledialog
 import os
+from filelock import FileLock, Timeout
+from source_paths import resolve_source_paths
 import sys
 import shutil
 import tempfile
@@ -225,6 +227,39 @@ class Theme:
 
 Theme.apply_preset("Teal")
 
+def _save_settings_atomically(path, settings):
+    """Replace saved settings only after a complete JSON file is on disk.
+
+    Each GUI process writes a uniquely named sibling file. Concurrent editor
+    exits can replace one another's complete JSON, never interleave/truncate.
+    """
+    destination = os.path.abspath(os.fspath(path))
+    # Cross-process lock from tox-dev/filelock@3.32.6. Windows uses native
+    # LockFileEx; keeping a stable sidecar avoids lock-file identity races.
+    # The durable JSON is still written to a unique temp and atomically
+    # replaced, so readers never observe a partial write.
+    lock = FileLock(destination + '.lock', timeout=30, preserve_lock_file=True)
+    with lock:
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode='w', encoding='utf-8', dir=os.path.dirname(destination),
+                prefix='.pymovieprint-settings-', suffix='.tmp', delete=False,
+            ) as stream:
+                temporary_path = stream.name
+                json.dump(settings, stream, indent=4)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary_path, destination)
+            temporary_path = None
+        finally:
+            if temporary_path is not None:
+                try:
+                    os.unlink(temporary_path)
+                except FileNotFoundError:
+                    pass
+
+
 # --- LOGGING SETUP ---
 def setup_file_logging():
     root_logger = logging.getLogger()
@@ -240,9 +275,11 @@ def setup_file_logging():
     except Exception as e:
         print(f"Failed to create user profile log: {e}")
 
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
-    root_logger.addHandler(console_handler)
+    # Windowed PyInstaller/pythonw applications have no standard streams.
+    if sys.stdout is not None:
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(logging.INFO)
+        root_logger.addHandler(console_handler)
 
     for module_name, error_detail, error_traceback in DependencyManager.LOAD_FAILURES:
         root_logger.error(
@@ -1571,7 +1608,7 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
             var = getattr(self, var_name)
             val = var.get()
             if setting_key == 'input_paths' and isinstance(val, str):
-                val = [path.strip() for path in val.split(';') if path.strip()]
+                val = self._current_source_paths()
             self.state_manager.update_settings({setting_key: val}, commit=False)
         except Exception: pass
 
@@ -1753,7 +1790,7 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
             return
         self._sync_output_destination()
         try:
-            inputs = [p.strip() for p in self.input_paths_var.get().split(';') if p.strip()]
+            inputs = self._current_source_paths()
             if not inputs or not os.path.isfile(inputs[0]):
                 text = 'Select a video to preview its output path.'
             else:
@@ -1942,7 +1979,7 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
     def save_project_action(self):
         state = self.state_manager.get_state()
-        state.source_paths = [p.strip() for p in self.input_paths_var.get().split(';') if p.strip()]
+        state.source_paths = self._current_source_paths()
         state.settings.input_paths = list(state.source_paths)
         path = self.current_project_path
         if not path:
@@ -2166,7 +2203,7 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
         item = self._selected_meta() or {}
         if item.get('video_path'):
             return item['video_path'] if os.path.isfile(item['video_path']) else ''
-        candidates = [p.strip() for p in self.input_paths_var.get().split(';') if p.strip()]
+        candidates = self._current_source_paths()
         return next((path for path in candidates if os.path.isfile(path)), "")
 
     def rename_sheet_action(self):
@@ -2641,7 +2678,7 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
             messagebox.showinfo("Mode Info", "Switch to 'Single Source' tab to preview tweaks.")
             return
 
-        input_paths = [p.strip() for p in self.input_paths_var.get().split(';') if p.strip()]
+        input_paths = self._current_source_paths()
         if not input_paths:
             messagebox.showerror("Preview Error", "Choose a video file before generating a preview.")
             return
@@ -2735,6 +2772,8 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
     def _thumbnail_preview_thread(self, video_path, temp_dir, config):
         logger = logging.getLogger(f"preview_{threading.get_ident()}")
+        logger.info('Preview worker started: source=%s mode=%s rows=%s cols=%s',
+                    video_path, config['extraction_mode'], config['rows'], config['cols'])
         queue_handler = QueueHandler(self.queue)
         logger.addHandler(queue_handler)
         meta = []
@@ -2927,9 +2966,17 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self._update_live_math()
         source = os.path.basename(metadata[0].get('video_path', '')) if metadata else ''
         self.status_lbl.configure(text=f'Preview ready: {source} · {len(metadata)} frames.')
+        logging.getLogger(__name__).info('Preview state: frames=%d grid=%r original_image=%r source=%s',
+                                        len(metadata), data.get('grid_path'),
+                                        self.preview_zoomable_canvas.original_image is not None, source)
+        if metadata and data.get('grid_path') and self.preview_zoomable_canvas.original_image is not None:
+            logging.getLogger(__name__).info(
+                'Video contact sheet preview complete: %s frames=%d image=ready', source, len(metadata)
+            )
     def _handle_preview_failed(self, data):
         reason = data.get("reason") or "An unknown error occurred while generating the preview."
         summary = f"Preview failed: {reason}"
+        logging.getLogger(__name__).error("Contact-sheet preview failure: %s", reason)
         self.progress_bar.stop()
         self.status_lbl.configure(text=summary)
         messagebox.showerror("Preview Error", summary)
@@ -3148,8 +3195,7 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 return
             final_input_list = self.batch_file_list
         else:
-            input_paths_str = self.input_paths_var.get()
-            final_input_list = [p.strip() for p in input_paths_str.split(';') if p.strip()]
+            final_input_list = self._current_source_paths()
             if not final_input_list:
                 messagebox.showerror("Input Error", "Please select video file(s).")
                 return
@@ -3352,6 +3398,10 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.queue.put(("progress", (current, total, filename)))
 
     # --- HELPERS ---
+    def _current_source_paths(self):
+        """Resolve exact selected file identities before legacy field parsing."""
+        return resolve_source_paths(self.input_paths_var.get(), self._internal_input_paths)
+
     def _set_single_source_paths(self, paths):
         """Update the text-bound source entry without clearing its StringVar."""
         self._internal_input_paths = [str(path) for path in paths if path]
@@ -3504,9 +3554,13 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self._loading_persistent_settings = True
             with open(SETTINGS_FILE, 'r') as f:
                 settings = json.load(f)
-                self.input_paths_var.set(settings.get("input_paths", ""))
-                if self.input_paths_var.get():
-                     self._internal_input_paths = [p.strip() for p in self.input_paths_var.get().split(';') if p.strip()]
+                stored_paths = settings.get('input_paths_list')
+                if isinstance(stored_paths, list) and all(isinstance(p, str) for p in stored_paths):
+                    self._internal_input_paths = list(stored_paths)
+                    self.input_paths_var.set('; '.join(self._internal_input_paths))
+                else:
+                    self.input_paths_var.set(settings.get('input_paths', ''))
+                    self._internal_input_paths = resolve_source_paths(self.input_paths_var.get())
                 for var_name, key in self.settings_map.items():
                     if key in settings and hasattr(self, var_name):
                         value = settings[key]
@@ -3549,9 +3603,10 @@ class MoviePrintApp(ctk.CTk, TkinterDnD.DnDWrapper):
         settings = {}
         for var_name, key in self.settings_map.items():
             if hasattr(self, var_name): settings[key] = getattr(self, var_name).get()
+        settings['input_paths_list'] = self._current_source_paths()
         try:
-            with open(SETTINGS_FILE, 'w') as f: json.dump(settings, f, indent=4)
-        except (OSError, TypeError) as error:
+            _save_settings_atomically(SETTINGS_FILE, settings)
+        except (OSError, TypeError, Timeout) as error:
             logging.getLogger(__name__).warning("Could not save GUI settings: %s", error)
         if self.preview_temp_dir and os.path.exists(self.preview_temp_dir): self.temp_dirs_to_cleanup.append(self.preview_temp_dir)
         self._cleanup_garbage_dirs()

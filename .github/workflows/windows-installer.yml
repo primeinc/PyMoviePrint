@@ -1,0 +1,181 @@
+name: Windows contact sheet installer
+run-name: Windows installer / ${{ github.event_name }} / ${{ github.head_ref || github.ref_name }}
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    paths:
+      - 'windows/**'
+      - 'shell_entry.py'
+      - 'source_paths.py'
+      - 'movieprint_gui.py'
+      - 'tests/**'
+      - '.github/workflows/windows-installer.yml'
+
+# Different workflows never cancel one another. Automatic runs supersede
+# earlier commits on the same branch. Version releases and manual dispatches
+# remain independent and are never canceled by new commits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ (github.event_name == 'workflow_dispatch' || github.ref_type == 'tag') && github.run_id || (github.head_ref || github.ref_name) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type != 'tag') }}
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned direct dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          if ($LASTEXITCODE -ne 0) { throw "pip bootstrap failed with exit code $LASTEXITCODE" }
+          python -m pip install --only-binary=:all: -r windows/requirements-build.txt
+          if ($LASTEXITCODE -ne 0) { throw "pinned dependency installation failed with exit code $LASTEXITCODE" }
+          python -m pip freeze | Out-File -FilePath windows/resolved-build-packages.txt -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw "dependency manifest creation failed with exit code $LASTEXITCODE" }
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { throw "installed dependencies conflict with exit code $LASTEXITCODE" }
+      - name: Generate branded Windows icon
+        run: python windows/build_icon.py
+      - name: Install FFmpeg required by upstream integration tests
+        shell: pwsh
+        run: |
+          $bin = Join-Path $env:RUNNER_TEMP 'pymovieprint-ffmpeg-ci'
+          ./windows/Prepare-FFmpeg.ps1 -Destination $bin
+          & (Join-Path $bin 'ffmpeg.exe') -version
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned FFmpeg failed to start' }
+          & (Join-Path $bin 'ffprobe.exe') -version
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned FFprobe failed to start' }
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value $bin
+      - name: Run complete upstream and fork test suite
+        run: python -m pytest -q --tb=long -ra --show-capture=all --junitxml=ci-reports/pytest.xml
+      - name: Build Windows GUI executable
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --distpath dist --workpath build/windows windows/PyMoviePrint.spec
+          if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path dist/PyMoviePrint/PyMoviePrint.exe)) { throw 'Missing frozen executable' }
+          $exe = Get-FileHash dist/PyMoviePrint/PyMoviePrint.exe -Algorithm SHA256
+          $metadata = [ordered]@{
+            repo = 'primeinc/PyMoviePrint'
+            revision = $env:GITHUB_SHA
+            python = (python --version)
+            exe_sha256 = $exe.Hash.ToLowerInvariant()
+            dependencies = @(Get-Content windows/resolved-build-packages.txt)
+          }
+          $metadata | ConvertTo-Json -Depth 5 | Set-Content -Path dist/PyMoviePrint/build-info.json -Encoding UTF8
+          Get-Content dist/PyMoviePrint/build-info.json
+      - name: Bundle pinned FFmpeg LGPL shared tools (hash verified)
+        shell: pwsh
+        run: ./windows/Prepare-FFmpeg.ps1
+      - name: Install Inno Setup compiler
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed with exit code $LASTEXITCODE" }
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (-not (Test-Path $compiler)) { throw 'ISCC.exe missing after Inno Setup installation' }
+          Get-Item -LiteralPath $compiler | Select-Object FullName, VersionInfo
+      - name: Compile managed Windows installer
+        shell: pwsh
+        run: |
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          & $compiler windows/PyMoviePrint.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC exited $LASTEXITCODE" }
+          if (-not (Test-Path dist/PyMoviePrint-Setup.exe)) { throw 'Installer output missing' }
+      - name: Install, verify registry, upgrade, uninstall
+        shell: pwsh
+        run: ./windows/smoke-install.ps1
+      - name: Annotate installer failure and retain full diagnostics
+        if: failure() && !cancelled()
+        shell: pwsh
+        run: |
+          python scripts/ci/report_failure.py --junit ci-reports/pytest.xml --label "Windows installer"
+          if ($LASTEXITCODE -ne 0) { throw "Failure diagnostic reporter exited $LASTEXITCODE" }
+          Write-Host "::group::Frozen GUI and shell logs, if present"
+          $logs = @(
+            (Join-Path $env:USERPROFILE '.pymovieprint/logs'),
+            (Join-Path $PWD 'windows')
+          )
+          foreach ($folder in $logs) {
+            if (Test-Path -LiteralPath $folder) {
+              Get-ChildItem -LiteralPath $folder -File -Filter '*.log' |
+                ForEach-Object {
+                  Write-Host "Log file: $($_.FullName)"
+                  Get-Content -LiteralPath $_.FullName
+                }
+            }
+          }
+          Write-Host "::endgroup::"
+
+      - name: Upload installer failure evidence (not part of public release)
+        if: failure() && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics-installer-${{ github.run_id }}
+          path: |
+            ci-reports/
+            windows/*.log
+            dist/PyMoviePrint/build-info.json
+            windows/resolved-build-packages.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      # GitHub upload-artifact v7 supports raw, single-file downloads.
+      # This is the executable itself, not an automatically zipped archive.
+      - name: Publish tested installer EXE without ZIP
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          path: dist/PyMoviePrint-Setup.exe
+          archive: false
+          if-no-files-found: error
+
+  release:
+    name: Publish direct EXE to GitHub Releases
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: installer
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Allow release tags only from merged main history
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" refs/remotes/origin/main; then
+            echo "Release tag must identify a commit already merged into main." >&2
+            exit 1
+          fi
+
+      - name: Retrieve CI-tested EXE directly
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: PyMoviePrint-Setup.exe
+          path: release
+
+      - name: Publish or resume a verified, one-EXE release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: bash scripts/ci/publish_release.sh
