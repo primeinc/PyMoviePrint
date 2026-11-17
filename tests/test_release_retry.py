@@ -69,7 +69,7 @@ elif args[0] == "api":
         print(json.dumps(obj))
     elif any("releases?per_page=100" in arg for arg in args):
         # gh api --paginate --slurp wraps each response page in an array.
-        print(json.dumps([[obj]] if obj is not None else [[]]))
+        print(json.dumps([[{**obj, "tag_name": os.environ["RELEASE_TAG"]}]] if obj is not None else [[]]))
     else:
         print("unexpected API:", args, file=sys.stderr)
         sys.exit(99)
